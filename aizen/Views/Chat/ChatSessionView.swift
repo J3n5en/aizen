@@ -9,6 +9,7 @@ import SwiftUI
 import CoreData
 import Combine
 import UniformTypeIdentifiers
+import Markdown
 
 struct ChatSessionView: View {
     let worktree: Worktree
@@ -39,9 +40,35 @@ struct ChatSessionView: View {
     @State private var showingAgentSwitchWarning = false
     @State private var pendingAgentSwitch: String?
     @State private var dashPhase: CGFloat = 0
+    @State private var gradientRotation: Double = 0
+    @StateObject private var audioService = AudioService()
+    @State private var showingVoiceRecording = false
+    @State private var showingPermissionError = false
+    @State private var permissionErrorMessage = ""
 
     var selectedAgent: String {
         session.agentName ?? "claude"
+    }
+
+    var timelineItems: [TimelineItem] {
+        var items: [TimelineItem] = []
+
+        // Add messages
+        for message in messages {
+            items.append(.message(message))
+        }
+
+        // Add tool calls
+        for toolCall in toolCalls {
+            items.append(.toolCall(toolCall))
+        }
+
+        // Sort by timestamp
+        return items.sorted { a, b in
+            let aTime = a.timestamp
+            let bTime = b.timestamp
+            return aTime < bTime
+        }
     }
 
     var body: some View {
@@ -53,19 +80,18 @@ struct ChatSessionView: View {
                 VStack(spacing: 0) {
                     ScrollViewReader { proxy in
                         ScrollView(showsIndicators: false) {
-                            LazyVStack(spacing: 20) {
-                                ForEach(messages) { message in
-                                    let _ = print("ChatSessionView: Rendering message \(message.id) - role: \(message.role), content: \(message.content.prefix(50))...")
-                                    VStack(alignment: .leading, spacing: 8) {
+                            LazyVStack(spacing: 16) {
+                                // Render messages and tool calls in chronological order
+                                ForEach(timelineItems, id: \.id) { item in
+                                    switch item {
+                                    case .message(let message):
                                         MessageBubbleView(message: message, agentName: message.role == .agent ? selectedAgent : nil)
                                             .id(message.id)
-
-                                        if message.role == .agent, !message.toolCalls.isEmpty {
-                                            toolCallsSummaryView(for: message.toolCalls)
-                                                .padding(.leading, 0)
-                                        }
+                                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                                    case .toolCall(let toolCall):
+                                        ToolCallView(toolCall: toolCall)
+                                            .transition(.opacity.combined(with: .move(edge: .leading)))
                                     }
-                                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                                 }
 
                                 if isProcessing {
@@ -75,7 +101,7 @@ struct ChatSessionView: View {
                                             .controlSize(.small)
 
                                         if let thought = currentAgentSession?.currentThought {
-                                            Text(thought)
+                                            Text(renderInlineMarkdown(thought))
                                                 .font(.callout)
                                                 .foregroundStyle(.secondary)
                                                 .lineLimit(2)
@@ -84,12 +110,12 @@ struct ChatSessionView: View {
                                         } else {
                                             Text("Agent is thinking...")
                                                 .font(.callout)
+                                                .fontWeight(.bold)
                                                 .foregroundStyle(.secondary)
                                                 .modifier(ShimmerEffect())
                                         }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 20)
                                     .id("processing")
                                     .transition(.opacity)
                                 }
@@ -204,6 +230,16 @@ struct ChatSessionView: View {
         } message: {
             Text("Switching agents will clear the current conversation and start a new session. This cannot be undone.")
         }
+        .alert("Permission Required", isPresented: $showingPermissionError) {
+            Button("Open Settings") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(permissionErrorMessage)
+        }
     }
 
     private func cycleModeForward() {
@@ -301,109 +337,186 @@ struct ChatSessionView: View {
 
     private var inputView: some View {
         HStack(alignment: .center, spacing: 12) {
-                Button(action: { showingAttachmentPicker.toggle() }) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(!isSessionReady ? .tertiary : .secondary)
-                        .contentShape(Rectangle())
+                if !showingVoiceRecording {
+                    Button(action: { showingAttachmentPicker.toggle() }) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(!isSessionReady ? .tertiary : .secondary)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isSessionReady)
+                    .transition(.opacity)
                 }
-                .buttonStyle(.plain)
-                .disabled(!isSessionReady)
 
                 ZStack(alignment: .topLeading) {
-                    if inputText.isEmpty {
-                        Text(isSessionReady ? "Ask anything..." : "Starting session...")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.tertiary)
-                            .padding(.top, 6)
-                            .allowsHitTesting(false)
-                    }
-
-                    CustomTextEditor(
-                        text: $inputText,
-                        onSubmit: {
-                            if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                sendMessage()
-                            }
-                        }
-                    )
-                    .font(.system(size: 14))
-                    .scrollContentBackground(.hidden)
-                    .frame(height: textEditorHeight)
-                    .disabled(!isSessionReady)
-                }
-                .frame(maxWidth: .infinity)
-
-                if let agentSession = currentAgentSession, !agentSession.availableModels.isEmpty {
-                    Menu {
-                        ForEach(agentSession.availableModels, id: \.modelId) { modelInfo in
-                            Button {
-                                Task {
-                                    try? await agentSession.setModel(modelInfo.modelId)
+                    if showingVoiceRecording {
+                        VoiceRecordingView(
+                            audioService: audioService,
+                            onSend: { transcribedText in
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    showingVoiceRecording = false
+                                    inputText = transcribedText
                                 }
-                            } label: {
-                                HStack {
-                                    Text(modelInfo.name)
-                                    Spacer()
-                                    if modelInfo.modelId == agentSession.currentModelId {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(.blue)
+                            },
+                            onCancel: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    showingVoiceRecording = false
+                                }
+                            }
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity)
+                    } else {
+                        if inputText.isEmpty {
+                            Text(isSessionReady ? "Ask anything..." : "Starting session...")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 6)
+                                .allowsHitTesting(false)
+                        }
+
+                        CustomTextEditor(
+                            text: $inputText,
+                            onSubmit: {
+                                if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    sendMessage()
+                                }
+                            }
+                        )
+                        .font(.system(size: 14))
+                        .scrollContentBackground(.hidden)
+                        .frame(height: textEditorHeight)
+                        .disabled(!isSessionReady)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 40)
+
+                if !showingVoiceRecording {
+                    if let agentSession = currentAgentSession, !agentSession.availableModels.isEmpty {
+                        Menu {
+                            ForEach(agentSession.availableModels, id: \.modelId) { modelInfo in
+                                Button {
+                                    Task {
+                                        try? await agentSession.setModel(modelInfo.modelId)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(modelInfo.name)
+                                        Spacer()
+                                        if modelInfo.modelId == agentSession.currentModelId {
+                                            Image(systemName: "checkmark")
+                                                .foregroundStyle(.blue)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            AgentIconView(agent: selectedAgent, size: 12)
-                            if let currentModel = agentSession.availableModels.first(where: { $0.modelId == agentSession.currentModelId }) {
-                                Text(currentModel.name)
-                                    .font(.system(size: 11, weight: .medium))
+                        } label: {
+                            HStack(spacing: 6) {
+                                AgentIconView(agent: selectedAgent, size: 12)
+                                if let currentModel = agentSession.availableModels.first(where: { $0.modelId == agentSession.currentModelId }) {
+                                    Text(currentModel.name)
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 8))
                             }
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .menuStyle(.borderlessButton)
+                        .buttonStyle(.plain)
+                        .help("Select model")
+                        .transition(.opacity)
                     }
-                    .menuStyle(.borderlessButton)
-                    .buttonStyle(.plain)
-                    .help("Select model")
-                }
 
-                Button(action: sendMessage) {
-                    Image(systemName: canSend ? "arrow.up.circle.fill" : "arrow.up.circle")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(canSend ? Color.blue : Color.secondary.opacity(0.5))
-                        .contentShape(Rectangle())
+                    Button(action: {
+                        Task {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                showingVoiceRecording = true
+                            }
+                            do {
+                                try await audioService.startRecording()
+                            } catch {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    showingVoiceRecording = false
+                                }
+                                if let recordingError = error as? AudioService.RecordingError {
+                                    permissionErrorMessage = recordingError.localizedDescription + "\n\nPlease enable Microphone and Speech Recognition permissions in System Settings."
+                                    showingPermissionError = true
+                                }
+                                print("Failed to start recording: \(error)")
+                            }
+                        }
+                    }) {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(!isSessionReady ? .tertiary : .secondary)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isSessionReady)
+                    .help("Record voice message")
+                    .transition(.opacity)
+
+                    Button(action: sendMessage) {
+                        Image(systemName: canSend ? "arrow.up.circle.fill" : "arrow.up.circle")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(canSend ? Color.blue : Color.secondary.opacity(0.5))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: canSend)
+                    .transition(.opacity)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: canSend)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: inputCornerRadius, style: .continuous))
             .overlay {
-                if currentAgentSession?.currentModeId != "plan" {
+                if isProcessing && currentAgentSession?.currentThought != nil {
+                    // Animated gradient border when thinking
+                    RoundedRectangle(cornerRadius: inputCornerRadius, style: .continuous)
+                        .strokeBorder(
+                            AngularGradient(
+                                colors: [.blue, .purple, .blue],
+                                center: .center,
+                                angle: .degrees(gradientRotation)
+                            ),
+                            lineWidth: 2
+                        )
+                } else if currentAgentSession?.currentModeId != "plan" {
                     RoundedRectangle(cornerRadius: inputCornerRadius, style: .continuous)
                         .strokeBorder(.separator.opacity(isHoveringInput ? 0.5 : 0.2), lineWidth: 0.5)
                 }
 
-                if currentAgentSession?.currentModeId == "plan" {
+                if currentAgentSession?.currentModeId == "plan" && !(isProcessing && currentAgentSession?.currentThought != nil) {
                     RoundedRectangle(cornerRadius: inputCornerRadius, style: .continuous)
-                        .strokeBorder(
-                            style: StrokeStyle(lineWidth: 2, dash: [8], dashPhase: dashPhase)
+                        .stroke(
+                            AngularGradient(
+                                colors: [.blue, .purple, .blue],
+                                center: .center,
+                                angle: .degrees(gradientRotation)
+                            ),
+                            style: StrokeStyle(lineWidth: 2, dash: [8])
                         )
-                        .foregroundStyle(.blue.opacity(0.6))
-                        .onAppear {
-                            withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                                dashPhase = -20
-                            }
-                        }
-                        .onDisappear {
-                            dashPhase = 0
-                        }
+                }
+            }
+            .onChange(of: isProcessing) { newValue in
+                if newValue && currentAgentSession?.currentThought != nil {
+                    startGradientAnimation()
+                }
+            }
+            .onChange(of: currentAgentSession?.currentModeId) { newMode in
+                if newMode == "plan" {
+                    startGradientAnimation()
+                }
+            }
+            .onAppear {
+                if currentAgentSession?.currentModeId == "plan" {
+                    startGradientAnimation()
                 }
             }
             .onHover { hovering in
@@ -448,8 +561,12 @@ struct ChatSessionView: View {
     }
 
     private var inputCornerRadius: CGFloat {
+        // More rounded when recording or single line
+        if showingVoiceRecording {
+            return 28
+        }
         let lineCount = inputText.components(separatedBy: .newlines).count
-        return lineCount > 1 ? 16 : 24
+        return lineCount > 1 ? 20 : 28
     }
 
     private var textEditorHeight: CGFloat {
@@ -526,10 +643,6 @@ struct ChatSessionView: View {
         session.$messages
             .receive(on: DispatchQueue.main)
             .sink { newMessages in
-                print("ChatSessionView: Received \(newMessages.count) messages")
-                if let lastMsg = newMessages.last {
-                    print("ChatSessionView: Last message - role: \(lastMsg.role), content length: \(lastMsg.content.count), first 100 chars: \(String(lastMsg.content.prefix(100)))")
-                }
                 messages = newMessages
 
                 DispatchQueue.main.async {
@@ -579,16 +692,11 @@ struct ChatSessionView: View {
             .receive(on: DispatchQueue.main)
             .sink { plan in
                 if let p = plan {
-                    print("ChatSessionView: Received agent plan with \(p.entries.count) entries")
-                    for entry in p.entries {
-                        print("ChatSessionView: Plan entry - \(entry.content)")
-                    }
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         showingAgentPlan = true
                     }
-                    print("ChatSessionView: Set showingAgentPlan = true")
                 } else {
-                    print("ChatSessionView: Agent plan cleared")
+                    showingAgentPlan = false
                 }
             }
             .store(in: &cancellables)
@@ -596,7 +704,6 @@ struct ChatSessionView: View {
         session.$showingPermissionAlert
             .receive(on: DispatchQueue.main)
             .sink { showing in
-                print("ChatSessionView: Permission alert visibility changed to: \(showing)")
                 showingPermissionAlert = showing
             }
             .store(in: &cancellables)
@@ -604,7 +711,6 @@ struct ChatSessionView: View {
         session.$permissionRequest
             .receive(on: DispatchQueue.main)
             .sink { request in
-                print("ChatSessionView: Permission request updated: \(request?.toolCall?.toolCallId ?? "nil")")
                 currentPermissionRequest = request
             }
             .store(in: &cancellables)
@@ -648,6 +754,61 @@ struct ChatSessionView: View {
                     scrollProxy?.scrollTo("processing", anchor: .bottom)
                 }
             }
+        }
+    }
+
+    private func renderInlineMarkdown(_ text: String) -> AttributedString {
+        let document = Document(parsing: text)
+        var lastBoldText: AttributedString?
+
+        // Find all bold sections and keep only the last one
+        for child in document.children {
+            if let paragraph = child as? Paragraph {
+                if let bold = extractLastBold(paragraph.children) {
+                    lastBoldText = bold
+                }
+            }
+        }
+
+        if let lastBold = lastBoldText {
+            var result = lastBold
+            result.font = .body.bold()
+            return result
+        }
+
+        return AttributedString(text)
+    }
+
+    private func extractLastBold(_ inlineElements: some Sequence<Markup>) -> AttributedString? {
+        var lastBold: AttributedString?
+
+        for element in inlineElements {
+            if let strong = element as? Strong {
+                // Found a bold section - replace the last one
+                lastBold = extractBoldContent(strong.children)
+            }
+        }
+
+        return lastBold
+    }
+
+    private func extractBoldContent(_ inlineElements: some Sequence<Markup>) -> AttributedString {
+        var result = AttributedString()
+
+        for element in inlineElements {
+            if let text = element as? Markdown.Text {
+                result += AttributedString(text.string)
+            } else if let strong = element as? Strong {
+                result += extractBoldContent(strong.children)
+            }
+        }
+
+        return result
+    }
+
+    private func startGradientAnimation() {
+        withAnimation(.linear(duration: 3).repeatForever(autoreverses: false)) {
+            gradientRotation = 360
         }
     }
 
@@ -817,11 +978,10 @@ struct ChatSessionView: View {
                         Text("Plan:")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
-                        Text(plan)
+                        PlanContentView(content: plan)
                             .font(.system(size: 12))
                             .foregroundStyle(.primary)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 400, alignment: .leading)
                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
                     }
                 } else if let filePath = rawInput["file_path"] as? String {
@@ -872,42 +1032,6 @@ struct ChatSessionView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private func toolCallsSummaryView(for messagToolCalls: [ToolCall]) -> some View {
-        let allCompleted = messagToolCalls.allSatisfy { $0.status == .completed || $0.status == .failed }
-
-        return Group {
-            if allCompleted && !messagToolCalls.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.green)
-
-                    Text("Ran \(messagToolCalls.count) tool\(messagToolCalls.count == 1 ? "" : "s")")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-
-                    let failedCount = messagToolCalls.filter { $0.status == .failed }.count
-                    if failedCount > 0 {
-                        Text("(\(failedCount) failed)")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.red)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.quaternary.opacity(0.3))
-                .cornerRadius(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(messagToolCalls) { toolCall in
-                        ToolCallView(toolCall: toolCall)
-                    }
-                }
-            }
-        }
-    }
-
     private func agentPlanSidebar(plan: Plan) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -940,12 +1064,12 @@ struct ChatSessionView: View {
                                 .padding(.top, 6)
 
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.content)
+                                PlanContentView(content: entry.content)
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(.primary)
 
                                 if let activeForm = entry.activeForm, entry.status == .inProgress {
-                                    Text(activeForm)
+                                    PlanContentView(content: activeForm)
                                         .font(.system(size: 11))
                                         .foregroundStyle(.secondary)
                                         .italic()
@@ -1015,33 +1139,58 @@ struct ChatSessionView: View {
 // MARK: - Shimmer Effect
 
 struct ShimmerEffect: ViewModifier {
-    @State private var phase: CGFloat = 0
+    private let animation: Animation
+    private let gradient: Gradient
+    private let min: CGFloat
+    private let max: CGFloat
+
+    @State private var isInitialState = true
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    init(
+        animation: Animation = .linear(duration: 1.5).delay(0.25).repeatForever(autoreverses: false),
+        gradient: Gradient = Gradient(colors: [
+            .black.opacity(0.3),
+            .black,
+            .black.opacity(0.3)
+        ]),
+        bandSize: CGFloat = 0.3
+    ) {
+        self.animation = animation
+        self.gradient = gradient
+        self.min = 0 - bandSize
+        self.max = 1 + bandSize
+    }
+
+    var startPoint: UnitPoint {
+        if layoutDirection == .rightToLeft {
+            isInitialState ? UnitPoint(x: max, y: min) : UnitPoint(x: 0, y: 1)
+        } else {
+            isInitialState ? UnitPoint(x: min, y: min) : UnitPoint(x: 1, y: 1)
+        }
+    }
+
+    var endPoint: UnitPoint {
+        if layoutDirection == .rightToLeft {
+            isInitialState ? UnitPoint(x: 1, y: 0) : UnitPoint(x: min, y: max)
+        } else {
+            isInitialState ? UnitPoint(x: 0, y: 0) : UnitPoint(x: max, y: max)
+        }
+    }
 
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(.clear)
-            .overlay {
-                GeometryReader { geometry in
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            .secondary,
-                            .white.opacity(0.8),
-                            .secondary
-                        ]),
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: geometry.size.width * 1.5)
-                    .offset(x: -geometry.size.width * 0.75 + phase * geometry.size.width * 2.25)
-                    .mask(content)
-                }
-            }
+            .mask(
+                LinearGradient(
+                    gradient: gradient,
+                    startPoint: startPoint,
+                    endPoint: endPoint
+                )
+            )
+            .animation(animation, value: isInitialState)
             .onAppear {
-                withAnimation(
-                    .linear(duration: 2.0)
-                    .repeatForever(autoreverses: false)
-                ) {
-                    phase = 1.0
+                DispatchQueue.main.asyncAfter(deadline: .now()) {
+                    isInitialState = false
                 }
             }
     }
@@ -1245,6 +1394,241 @@ struct AuthenticationSheet: View {
     }
 }
 
+// MARK: - Tool Details Sheet
+
+struct ToolDetailsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let toolCalls: [ToolCall]
+    @State private var expandedTools: Set<String> = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Tool Execution Details")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                Spacer()
+
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(toolCalls) { toolCall in
+                        toolCallDetailView(toolCall)
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(.ultraThinMaterial)
+        .frame(width: 650, height: 550)
+    }
+
+    @ViewBuilder
+    private func toolCallDetailView(_ toolCall: ToolCall) -> some View {
+        let isExpanded = expandedTools.contains(toolCall.toolCallId)
+
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    if isExpanded {
+                        expandedTools.remove(toolCall.toolCallId)
+                    } else {
+                        expandedTools.insert(toolCall.toolCallId)
+                    }
+                }
+            }) {
+                HStack(spacing: 10) {
+                    // Status indicator
+                    Circle()
+                        .fill(statusColor(for: toolCall.status))
+                        .frame(width: 6, height: 6)
+
+                    // Title and status
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(toolCall.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+
+                        Text(statusLabel(for: toolCall.status))
+                            .font(.system(size: 10))
+                            .foregroundStyle(statusColor(for: toolCall.status))
+                    }
+
+                    Spacer()
+
+                    // Expand/collapse indicator
+                    if !toolCall.content.isEmpty {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+
+            // Expanded content
+            if isExpanded && !toolCall.content.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(toolCall.content.enumerated()), id: \.offset) { _, block in
+                        CompactContentBlockView(block: block)
+                    }
+                }
+                .padding(10)
+                .padding(.horizontal, 2)
+            }
+        }
+        .background(Color(.controlBackgroundColor).opacity(0.2))
+        .cornerRadius(6)
+    }
+
+    private func statusColor(for status: ToolStatus) -> Color {
+        switch status {
+        case .pending: return .yellow
+        case .inProgress: return .blue
+        case .completed: return .green
+        case .failed: return .red
+        }
+    }
+
+    private func statusLabel(for status: ToolStatus) -> String {
+        switch status {
+        case .pending: return "Pending"
+        case .inProgress: return "Running"
+        case .completed: return "Done"
+        case .failed: return "Failed"
+        }
+    }
+}
+
+// MARK: - Compact Content Block View
+
+struct CompactContentBlockView: View {
+    let block: ContentBlock
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            switch block {
+            case .text(let content):
+                ScrollView([.horizontal, .vertical]) {
+                    Text(content.text)
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 200)
+                .padding(8)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(4)
+
+            case .image(let content):
+                Text("Image: \(content.mimeType)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+            case .resource(let content):
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Resource: \(content.resource.uri)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let text = content.resource.text {
+                        ScrollView([.horizontal, .vertical]) {
+                            Text(text)
+                                .font(.system(size: 11, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 150)
+                        .padding(8)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .cornerRadius(4)
+                    }
+                }
+
+            case .audio(let content):
+                Text("Audio: \(content.mimeType)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+            case .embeddedResource(let content):
+                Text("Resource: \(content.uri)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+            case .diff(let content):
+                ScrollView([.horizontal, .vertical]) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let path = content.path {
+                            Text("File: \(path)")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .padding(.bottom, 4)
+                        }
+
+                        let diffText = "--- \(content.path ?? "original")\n+++ \(content.path ?? "modified")\n\(content.oldText)\n\(content.newText)"
+                        ForEach(diffText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init), id: \.self) { line in
+                            Text(line)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(diffLineColor(for: line))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .textSelection(.enabled)
+                }
+                .frame(maxHeight: 200)
+                .padding(8)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(4)
+
+            case .terminalEmbed(let content):
+                ScrollView([.horizontal, .vertical]) {
+                    Text(content.output)
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 200)
+                .padding(8)
+                .background(Color.black.opacity(0.8))
+                .cornerRadius(4)
+                .foregroundStyle(.white)
+            }
+        }
+    }
+
+    private func diffLineColor(for line: String) -> Color {
+        if line.hasPrefix("+") && !line.hasPrefix("+++") {
+            return .green
+        } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+            return .red
+        } else if line.hasPrefix("@@") {
+            return .blue
+        }
+        return .primary
+    }
+}
+
 // MARK: - Chat Actions for Keyboard Shortcuts
 
 struct ChatActions {
@@ -1259,5 +1643,44 @@ extension FocusedValues {
     var chatActions: ChatActions? {
         get { self[ChatActionsKey.self] }
         set { self[ChatActionsKey.self] = newValue }
+    }
+}
+
+// MARK: - Plan Content View
+
+struct PlanContentView: View {
+    let content: String
+
+    var body: some View {
+        ScrollView {
+            MarkdownRenderedView(content: content, isStreaming: false)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+        }
+    }
+}
+
+// MARK: - Timeline Item
+
+enum TimelineItem {
+    case message(MessageItem)
+    case toolCall(ToolCall)
+
+    var id: String {
+        switch self {
+        case .message(let msg):
+            return msg.id
+        case .toolCall(let tool):
+            return tool.id
+        }
+    }
+
+    var timestamp: Date {
+        switch self {
+        case .message(let msg):
+            return msg.timestamp
+        case .toolCall(let tool):
+            return tool.timestamp
+        }
     }
 }

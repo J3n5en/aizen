@@ -355,9 +355,11 @@ extension FocusedValues {
 // MARK: - Terminal View Coordinator
 
 class TerminalViewCoordinator: LocalProcessTerminalViewDelegate {
+    let session: TerminalSession
     let onProcessExit: () -> Void
 
-    init(onProcessExit: @escaping () -> Void) {
+    init(session: TerminalSession, onProcessExit: @escaping () -> Void) {
+        self.session = session
         self.onProcessExit = onProcessExit
     }
 
@@ -366,7 +368,25 @@ class TerminalViewCoordinator: LocalProcessTerminalViewDelegate {
     }
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        // Not needed for our use case
+        // Update terminal session title when programs send escape sequences
+        print("🔔 setTerminalTitle called with: '\(title)'")
+        DispatchQueue.main.async { [weak session] in
+            guard let session = session,
+                  let context = session.managedObjectContext else {
+                print("❌ Failed to get session or context")
+                return
+            }
+
+            print("✅ Updating terminal title to: '\(title)'")
+            session.title = title
+
+            do {
+                try context.save()
+                print("💾 Terminal title saved successfully")
+            } catch {
+                print("Failed to update terminal title: \(error)")
+            }
+        }
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
@@ -399,7 +419,7 @@ struct TerminalViewWrapper: NSViewRepresentable {
     @AppStorage("terminalPalette") private var terminalPalette = "#45475a,#f38ba8,#a6e3a1,#f9e2af,#89b4fa,#f5c2e7,#94e2d5,#a6adc8,#585b70,#f37799,#89d88b,#ebd391,#74a8fc,#f2aede,#6bd7ca,#bac2de"
 
     func makeCoordinator() -> TerminalViewCoordinator {
-        TerminalViewCoordinator(onProcessExit: onProcessExit)
+        TerminalViewCoordinator(session: session, onProcessExit: onProcessExit)
     }
 
     func makeNSView(context: Context) -> NSView {

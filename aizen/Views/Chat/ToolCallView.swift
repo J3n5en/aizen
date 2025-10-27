@@ -9,32 +9,66 @@ import SwiftUI
 
 struct ToolCallView: View {
     let toolCall: ToolCall
+    @State private var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Status dot
-            Circle()
-                .fill(statusColor)
-                .frame(width: 5, height: 5)
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: 6) {
+                    // Status dot
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 5, height: 5)
 
-            // Tool icon
-            toolIcon
-                .foregroundColor(.secondary)
-                .frame(width: 12, height: 12)
+                    // Tool icon
+                    toolIcon
+                        .foregroundColor(.secondary)
+                        .frame(width: 12, height: 12)
 
-            // Title
-            Text(toolCall.title)
-                .font(.system(size: 11))
-                .foregroundColor(.primary)
-                .lineLimit(1)
+                    // Title
+                    Text(toolCall.title)
+                        .font(.system(size: 11))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
 
-            // Minimal status text
-            Text(statusText)
-                .font(.system(size: 9))
-                .foregroundColor(.secondary)
+                    // Minimal status text
+                    Text(statusText)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    // Expand indicator (only show if has content)
+                    if !toolCall.content.isEmpty {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+
+            // Expanded content
+            if isExpanded && !toolCall.content.isEmpty {
+                Divider()
+                    .padding(.vertical, 2)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(toolCall.content.enumerated()), id: \.offset) { _, block in
+                        ContentBlockView(block: block)
+                    }
+                }
+                .padding(8)
+            }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
         .background(backgroundColor)
         .cornerRadius(3)
         .frame(maxWidth: .infinity, alignment: .leading)

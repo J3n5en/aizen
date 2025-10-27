@@ -127,8 +127,6 @@ actor ACPClient {
             throw ACPClientError.processNotRunning
         }
 
-        print("ACPClient: Launching agent at \(agentPath) with args: \(arguments)")
-
         let proc = Process()
 
         // Resolve symlinks to get the actual file
@@ -207,12 +205,7 @@ actor ACPClient {
         try proc.run()
         process = proc
 
-        print("ACPClient: Agent process started with PID: \(proc.processIdentifier)")
-
-        // Start reading stdout in background
         startReading()
-
-        // Also log stderr for debugging
         startReadingStderr()
     }
 
@@ -472,8 +465,8 @@ actor ACPClient {
 
         stderr.readabilityHandler = { handle in
             let data = handle.availableData
-            if !data.isEmpty, let message = String(data: data, encoding: .utf8) {
-                print("ACPClient stderr: \(message)")
+            if !data.isEmpty {
+                // Discard stderr output
             }
         }
     }
@@ -687,36 +680,25 @@ actor ACPClient {
     }
 
     private func handlePermissionRequestMethod(_ request: JSONRPCRequest) async throws -> AnyCodable {
-        print("ACPClient: handlePermissionRequestMethod started")
-
         guard let delegate = delegate else {
-            print("ACPClient: No delegate set!")
             throw ACPClientError.delegateNotSet
         }
 
         guard let params = request.params else {
-            print("ACPClient: No params in request!")
             throw ACPClientError.invalidResponse
         }
 
         let data = try encoder.encode(params)
         let req = try decoder.decode(RequestPermissionRequest.self, from: data)
 
-        print("ACPClient: Decoded permission request - options: \(req.options?.count ?? 0)")
-        print("ACPClient: Calling delegate.handlePermissionRequest...")
-
         let response = try await delegate.handlePermissionRequest(request: req)
 
-        print("ACPClient: Got permission response - outcome: \(response.outcome.outcome), optionId: \(response.outcome.optionId ?? "none")")
-
-        // Return the response as-is
         let responseData = try encoder.encode(response)
         return try decoder.decode(AnyCodable.self, from: responseData)
     }
 
     private func sendSuccessResponse(requestId: RequestId, result: AnyCodable) async throws {
         let response = JSONRPCResponse(id: requestId, result: result, error: nil)
-        print("ACPClient: Sending success response for request \(requestId)")
         try await writeMessage(response)
     }
 
@@ -748,10 +730,6 @@ actor ACPClient {
 
         let data = try encoder.encode(message)
 
-        if let jsonString = String(data: data, encoding: .utf8) {
-            print("ACPClient sending: \(jsonString)")
-        }
-
         var lineData = data
         lineData.append(0x0A) // newline
 
@@ -774,11 +752,8 @@ actor ACPClient {
     // MARK: - Shell Environment Loading
 
     private func loadUserShellEnvironment() -> [String: String] {
-        // Try to load environment from user's login shell
         let shell = getLoginShell()
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-
-        print("ACPClient: Loading environment from shell: \(shell)")
 
         // Run shell in login mode to source profile files
         let process = Process()
@@ -817,7 +792,6 @@ actor ACPClient {
 
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             if let output = String(data: data, encoding: .utf8) {
-                // Parse env output (KEY=VALUE per line)
                 for line in output.split(separator: "\n") {
                     if let equalsIndex = line.firstIndex(of: "=") {
                         let key = String(line[..<equalsIndex])
@@ -825,30 +799,13 @@ actor ACPClient {
                         shellEnv[key] = value
                     }
                 }
-                print("ACPClient: Loaded \(shellEnv.count) environment variables from shell")
-
-                // Log specific env vars we care about
-                if let geminiKey = shellEnv["GEMINI_API_KEY"] {
-                    print("ACPClient: ✓ Found GEMINI_API_KEY (length: \(geminiKey.count))")
-                } else {
-                    print("ACPClient: ✗ GEMINI_API_KEY not found in shell environment")
-                }
-
-                if let anthropicKey = shellEnv["ANTHROPIC_API_KEY"] {
-                    print("ACPClient: ✓ Found ANTHROPIC_API_KEY (length: \(anthropicKey.count))")
-                }
-
-                if let openaiKey = shellEnv["OPENAI_API_KEY"] {
-                    print("ACPClient: ✓ Found OPENAI_API_KEY (length: \(openaiKey.count))")
-                }
             }
         } catch {
-            print("ACPClient: Failed to load shell environment: \(error), using process environment")
+            shellEnv = ProcessInfo.processInfo.environment
+            return shellEnv
         }
 
-        // Fallback to process environment if shell loading failed
         if shellEnv.isEmpty {
-            print("ACPClient: Shell environment empty, falling back to process environment")
             shellEnv = ProcessInfo.processInfo.environment
         }
 

@@ -67,9 +67,10 @@ struct WorktreeDetailView: View {
                 ToolbarItemGroup(placement: .automatic) {
                     if selectedTab == "chat" && !chatSessions.isEmpty {
                         ForEach(chatSessions) { session in
-                            Button {
-                                selectedChatSessionId = session.id
-                            } label: {
+                            SessionTabButton(
+                                isSelected: selectedChatSessionId == session.id,
+                                action: { selectedChatSessionId = session.id }
+                            ) {
                                 HStack(spacing: 6) {
                                     AgentIconView(agent: session.agentName ?? "claude", size: 14)
 
@@ -86,14 +87,13 @@ struct WorktreeDetailView: View {
                                     .buttonStyle(.borderless)
                                 }
                             }
-                            .buttonStyle(.automatic)
-                            .foregroundStyle(selectedChatSessionId == session.id ? .primary : .secondary)
                         }
                     } else if selectedTab == "terminal" && !terminalSessions.isEmpty {
                         ForEach(terminalSessions) { session in
-                            Button {
-                                selectedTerminalSessionId = session.id
-                            } label: {
+                            SessionTabButton(
+                                isSelected: selectedTerminalSessionId == session.id,
+                                action: { selectedTerminalSessionId = session.id }
+                            ) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "terminal")
                                         .font(.system(size: 12))
@@ -110,8 +110,6 @@ struct WorktreeDetailView: View {
                                     .buttonStyle(.borderless)
                                 }
                             }
-                            .buttonStyle(.automatic)
-                            .foregroundStyle(selectedTerminalSessionId == session.id ? .primary : .secondary)
                         }
                     }
                 }
@@ -803,4 +801,39 @@ struct AppMenuLabel: View {
         worktree: Worktree(),
         repositoryManager: RepositoryManager(viewContext: PersistenceController.preview.container.viewContext)
     )
+}
+
+// MARK: - Session Tab Button
+
+struct SessionTabButton<Content: View>: View {
+    let isSelected: Bool
+    let action: () -> Void
+    let content: Content
+
+    @State private var isHovering = false
+
+    init(isSelected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.isSelected = isSelected
+        self.action = action
+        self.content = content()
+    }
+    
+
+    var body: some View {
+        Button(action: action) {
+            content
+                .padding(6)
+                .background(
+                    (isSelected && !isHovering) ?
+                    Color(nsColor: .separatorColor) : Color.clear,
+                    in: Capsule()
+                )
+                
+        }
+        .buttonStyle(.automatic)
+       
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
 }

@@ -24,6 +24,8 @@ struct ContentView: View {
     @State private var showingAddRepository = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var previousWorktree: Worktree?
+    @AppStorage("hasShownOnboarding") private var hasShownOnboarding = false
+    @State private var showingOnboarding = false
 
     init(context: NSManagedObjectContext) {
         _repositoryManager = StateObject(wrappedValue: RepositoryManager(viewContext: context))
@@ -82,9 +84,16 @@ struct ContentView: View {
                 )
             }
         }
+        .sheet(isPresented: $showingOnboarding) {
+            OnboardingView()
+        }
         .onAppear {
             if selectedWorkspace == nil {
                 selectedWorkspace = workspaces.first
+            }
+            if !hasShownOnboarding {
+                showingOnboarding = true
+                hasShownOnboarding = true
             }
         }
         .onChange(of: selectedWorktree) { oldValue, newValue in

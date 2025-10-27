@@ -22,6 +22,7 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     @Published var isActive: Bool = false
     @Published var currentThought: String?
     @Published var error: String?
+
     @Published var authMethods: [AuthMethod] = []
     @Published var needsAuthentication: Bool = false
     @Published var availableCommands: [AvailableCommand] = []
@@ -96,27 +97,18 @@ class AgentSession: ObservableObject, ACPClientDelegate {
             )
         )
 
-        // Check if authentication is required
         if let authMethods = initResponse.authMethods, !authMethods.isEmpty {
             self.authMethods = authMethods
 
-            // Check for saved auth preference
             if let savedAuthMethod = AgentRegistry.shared.getAuthPreference(for: agentName) {
-                print("AgentSession: Found saved auth preference: \(savedAuthMethod)")
-
                 if savedAuthMethod == "skip" {
-                    // User chose to skip auth - create session directly
-                    print("AgentSession: Skipping authentication as per saved preference")
                     try await createSessionDirectly(workingDir: workingDir, client: client)
                     return
                 } else {
-                    // Auto-authenticate with saved method
-                    print("AgentSession: Auto-authenticating with saved method")
                     do {
                         try await performAuthentication(client: client, authMethodId: savedAuthMethod, workingDir: workingDir)
                         return
                     } catch {
-                        print("AgentSession: Auto-auth failed, showing dialog: \(error)")
                         // Fall through to show auth dialog
                     }
                 }
@@ -137,20 +129,16 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         self.sessionId = sessionResponse.sessionId
         self.isActive = true
 
-        // Parse modes and models from session response
         if let modesInfo = sessionResponse.modes {
             self.availableModes = modesInfo.availableModes
             self.currentModeId = modesInfo.currentModeId
-            print("AgentSession: Loaded \(modesInfo.availableModes.count) modes, current: \(modesInfo.currentModeId)")
         }
 
         if let modelsInfo = sessionResponse.models {
             self.availableModels = modelsInfo.availableModels
             self.currentModelId = modelsInfo.currentModelId
-            print("AgentSession: Loaded \(modelsInfo.availableModels.count) models, current: \(modelsInfo.currentModelId)")
         }
 
-        // Start listening for notifications
         startNotificationListener(client: client)
 
         addSystemMessage("Session started with \(agentName) in \(workingDir)")
@@ -163,22 +151,17 @@ class AgentSession: ObservableObject, ACPClientDelegate {
             mcpServers: []
         )
 
-        print("AgentSession: Got session ID: \(sessionResponse.sessionId.value)")
-
         self.sessionId = sessionResponse.sessionId
         self.isActive = true
 
-        // Parse modes and models from session response
         if let modesInfo = sessionResponse.modes {
             self.availableModes = modesInfo.availableModes
             self.currentModeId = modesInfo.currentModeId
-            print("AgentSession: Loaded \(modesInfo.availableModes.count) modes, current: \(modesInfo.currentModeId)")
         }
 
         if let modelsInfo = sessionResponse.models {
             self.availableModels = modelsInfo.availableModels
             self.currentModelId = modelsInfo.currentModelId
-            print("AgentSession: Loaded \(modelsInfo.availableModels.count) models, current: \(modelsInfo.currentModelId)")
         }
 
         startNotificationListener(client: client)
@@ -208,9 +191,6 @@ class AgentSession: ObservableObject, ACPClientDelegate {
             throw AgentSessionError.clientNotInitialized
         }
 
-        print("AgentSession: Skipping authentication, creating session directly")
-
-        // Save skip preference
         AgentRegistry.shared.saveSkipAuth(for: agentName)
 
         needsAuthentication = false
@@ -223,9 +203,6 @@ class AgentSession: ObservableObject, ACPClientDelegate {
             throw AgentSessionError.clientNotInitialized
         }
 
-        print("AgentSession: Attempting authentication with method: \(authMethodId)")
-
-        // Save auth preference for next time
         AgentRegistry.shared.saveAuthPreference(agentName: agentName, authMethodId: authMethodId)
 
         try await performAuthentication(client: client, authMethodId: authMethodId, workingDir: workingDirectory)
@@ -240,6 +217,9 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         guard let client = acpClient else {
             throw AgentSessionError.clientNotInitialized
         }
+
+        // Clear tool calls from previous message
+        toolCalls = []
 
         // Build content blocks array
         var contentBlocks: [ContentBlock] = []
@@ -257,27 +237,14 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         // Add user message to UI with all content blocks
         addUserMessage(content, contentBlocks: contentBlocks)
 
-        // Send to agent and wait for completion
+        // Send to agent - notifications will arrive asynchronously
+        // Tool calls will mark messages complete, or if no tools, the final chunk completes it
         let promptResponse = try await client.sendPrompt(sessionId: sessionId, content: contentBlocks)
 
-        // Small delay to allow any in-flight message chunks to be processed
-        // This prevents race condition where completion arrives before final chunks
-        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-
-        // Mark the last incomplete agent message as complete
-        if let lastIndex = messages.lastIndex(where: { $0.role == .agent && !$0.isComplete }) {
-            var completedMessage = messages[lastIndex]
-            messages[lastIndex] = MessageItem(
-                id: completedMessage.id,
-                role: completedMessage.role,
-                content: completedMessage.content,
-                timestamp: completedMessage.timestamp,
-                toolCalls: completedMessage.toolCalls,
-                contentBlocks: completedMessage.contentBlocks,
-                isComplete: true
-            )
-            print("AgentSession: Marked message \(completedMessage.id) as complete (stopReason: \(promptResponse.stopReason.rawValue))")
-        }
+//        // Ensure the last message is marked complete in case there were no tool calls
+//        if let lastMessage = messages.last, lastMessage.role == .agent, !lastMessage.isComplete {
+//            markLastMessageComplete()
+//        }
     }
 
     /// Create a resource content block from a file URL
@@ -335,17 +302,12 @@ class AgentSession: ObservableObject, ACPClientDelegate {
             throw AgentSessionError.sessionNotActive
         }
 
-        print("AgentSession: Setting mode to: \(modeId)")
-
         let response = try await client.setMode(sessionId: sessionId, modeId: modeId)
         if response.success {
             currentModeId = modeId
             if let modeName = availableModes.first(where: { $0.id == modeId })?.name {
                 addSystemMessage("Mode changed to \(modeName)")
             }
-            print("AgentSession: Mode changed successfully to \(modeId)")
-        } else {
-            print("AgentSession: Mode change failed")
         }
     }
 
@@ -392,7 +354,6 @@ class AgentSession: ObservableObject, ACPClientDelegate {
 
     private func handleNotification(_ notification: JSONRPCNotification) {
         guard notification.method == "session/update" else {
-            print("AgentSession: Received notification: \(notification.method)")
             return
         }
 
@@ -402,14 +363,20 @@ class AgentSession: ObservableObject, ACPClientDelegate {
             let updateNotification = try JSONDecoder().decode(SessionUpdateNotification.self, from: data)
 
             let updateType = updateNotification.update.sessionUpdate
-            print("AgentSession: session/update type: \(updateType)")
-            print("AgentSession: Full update data: \(updateNotification.update)")
 
             // Handle different update types
             switch updateType {
             case "tool_call", "tool_call_update":
                 // Tool call info is at the update level, not in an array
                 if let toolCallId = updateNotification.update.toolCallId {
+                    // If this is a new tool call (not an update), mark current message complete
+                    // This creates a visual break between agent message and tool calls
+              
+                    if updateNotification.update.sessionUpdate == "tool_call" &&
+                       !toolCalls.contains(where: { $0.toolCallId == toolCallId }) {
+                        markLastMessageComplete()
+                    }
+
                     // Check if this is an existing tool call
                     if let existingIndex = toolCalls.firstIndex(where: { $0.toolCallId == toolCallId }) {
                         // Update existing tool call with new fields
@@ -421,9 +388,9 @@ class AgentSession: ObservableObject, ACPClientDelegate {
                                 title: updateNotification.update.title ?? updated.title,
                                 kind: updateNotification.update.kind ?? updated.kind,
                                 status: status,
-                                content: updated.content
+                                content: updated.content,
+                                timestamp: updated.timestamp
                             )
-                            print("AgentSession: Updated tool call \(toolCallId) status: \(status)")
                         }
 
                         toolCalls[existingIndex] = updated
@@ -436,50 +403,45 @@ class AgentSession: ObservableObject, ACPClientDelegate {
                             title: title,
                             kind: kind,
                             status: status,
-                            content: []
+                            content: [],
+                            timestamp: Date()
                         )
                         toolCalls.append(toolCall)
-                        print("AgentSession: New tool call - \(title) (\(status.rawValue)), kind: \(kind.rawValue)")
                     }
                 }
 
             case "agent_message_chunk":
                 if let contentAny = updateNotification.update.content?.value {
-                    // Clear current thought when agent starts responding
                     currentThought = nil
 
-                    // Content can be a dictionary (single ContentBlock) or string
                     if let contentDict = contentAny as? [String: Any],
                        let type = contentDict["type"] as? String,
                        type == "text",
                        let text = contentDict["text"] as? String {
 
-                        print("AgentSession: Agent chunk text: '\(text)'")
-
-                        // Append to last agent message or create new one
-                        if let lastMessage = messages.last, lastMessage.role == .agent, !lastMessage.isComplete {
+                        // Append to last agent message if it exists and is still being streamed
+                        if let lastMessage = messages.last,
+                           lastMessage.role == .agent,
+                           !lastMessage.isComplete {
                             let newContent = lastMessage.content + text
-                            print("AgentSession: Appending to existing message, new length: \(newContent.count)")
                             messages[messages.count - 1] = MessageItem(
                                 id: lastMessage.id,
                                 role: .agent,
                                 content: newContent,
                                 timestamp: lastMessage.timestamp,
-                                toolCalls: toolCalls,
+                                toolCalls: lastMessage.toolCalls,
                                 contentBlocks: lastMessage.contentBlocks,
-                                isComplete: false
+                                isComplete: false,
+                                startTime: lastMessage.startTime,
+                                executionTime: lastMessage.executionTime,
+                                requestId: lastMessage.requestId
                             )
                         } else {
-                            print("AgentSession: Creating new agent message")
-                            addAgentMessage(text, toolCalls: toolCalls, isComplete: false)
+                            // Start a new agent message
+                            addAgentMessage(text, isComplete: false, startTime: Date())
                         }
 
-                        print("AgentSession: Total messages: \(messages.count)")
-                    } else {
-                        print("AgentSession: Content format unexpected: \(contentAny)")
                     }
-                } else {
-                    print("AgentSession: No content in agent_message_chunk")
                 }
 
             case "user_message_chunk":
@@ -491,26 +453,21 @@ class AgentSession: ObservableObject, ACPClientDelegate {
                    let contentDict = contentAny as? [String: Any],
                    let text = contentDict["text"] as? String {
                     print("Agent thought: \(text)")
-                    currentThought = text
+                    // Accumulate thought chunks instead of replacing
+                    if let existing = currentThought {
+                        currentThought = existing + text
+                    } else {
+                        currentThought = text
+                    }
                 }
 
             case "plan":
                 if let plan = updateNotification.update.plan {
-                    print("AgentSession: Received plan with \(plan.entries.count) entries")
-                    for (i, entry) in plan.entries.enumerated() {
-                        print("  [\(i)] \(entry.status.rawValue): \(entry.content)")
-                    }
                     agentPlan = plan
-                } else {
-                    print("AgentSession: Plan update received but no plan data in notification")
                 }
 
             case "available_commands_update":
                 if let commands = updateNotification.update.availableCommands {
-                    print("AgentSession: Received \(commands.count) available commands")
-                    for cmd in commands {
-                        print("  - /\(cmd.name): \(cmd.description)")
-                    }
                     availableCommands = commands
                 }
 
@@ -520,10 +477,9 @@ class AgentSession: ObservableObject, ACPClientDelegate {
                 }
 
             default:
-                print("AgentSession: Unknown update type: \(updateType)")
+                break
             }
         } catch {
-            print("AgentSession: Failed to parse session update: \(error.localizedDescription)")
             self.error = "Failed to parse session update: \(error.localizedDescription)"
         }
     }
@@ -539,17 +495,11 @@ class AgentSession: ObservableObject, ACPClientDelegate {
                     toolCallId: newCall.toolCallId,
                     title: newCall.title,
                     kind: newCall.kind,
-                    status: newCall.status, // Update status
+                    status: newCall.status,
                     content: mergedContent
                 )
-
-                print("AgentSession: Updated tool call \(newCall.toolCallId) - kind: \(newCall.kind.rawValue), status: \(newCall.status.rawValue), content blocks: \(mergedContent.count)")
-                for (i, block) in mergedContent.enumerated() {
-                    print("AgentSession:   Content[\(i)]: \(block)")
-                }
             } else {
                 toolCalls.append(newCall)
-                print("AgentSession: Added new tool call \(newCall.toolCallId) - \(newCall.title)")
             }
         }
     }
@@ -566,17 +516,38 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         ))
     }
 
-    private func addAgentMessage(_ content: String, toolCalls: [ToolCall] = [], isComplete: Bool = true) {
+    private func markLastMessageComplete() {
+        if let lastIndex = messages.lastIndex(where: { $0.role == .agent && !$0.isComplete }) {
+            let completedMessage = messages[lastIndex]
+            let executionTime = completedMessage.startTime.map { Date().timeIntervalSince($0) }
+            messages[lastIndex] = MessageItem(
+                id: completedMessage.id,
+                role: completedMessage.role,
+                content: completedMessage.content,
+                timestamp: completedMessage.timestamp,
+                toolCalls: completedMessage.toolCalls,
+                contentBlocks: completedMessage.contentBlocks,
+                isComplete: true,
+                startTime: completedMessage.startTime,
+                executionTime: executionTime,
+                requestId: completedMessage.requestId
+            )
+        }
+    }
+
+    private func addAgentMessage(_ content: String, toolCalls: [ToolCall] = [], isComplete: Bool = true, startTime: Date? = nil, requestId: String? = nil) {
         let newMessage = MessageItem(
             id: UUID().uuidString,
             role: .agent,
             content: content,
             timestamp: Date(),
             toolCalls: toolCalls,
-            isComplete: isComplete
+            isComplete: isComplete,
+            startTime: startTime,
+            executionTime: nil,
+            requestId: requestId
         )
         messages.append(newMessage)
-        print("AgentSession: Added agent message - ID: \(newMessage.id), content: '\(content)', tool calls: \(toolCalls.count), complete: \(isComplete), total messages: \(messages.count)")
     }
 
     private func addSystemMessage(_ content: String) {
@@ -675,32 +646,14 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     }
 
     func handlePermissionRequest(request: RequestPermissionRequest) async throws -> RequestPermissionResponse {
-        print("AgentSession: Permission requested")
-        if let toolCall = request.toolCall {
-            print("AgentSession: For tool call: \(toolCall.toolCallId)")
-        }
-        if let msg = request.message {
-            print("AgentSession: Message: \(msg)")
-        }
-        if let opts = request.options {
-            print("AgentSession: Options: \(opts.map { $0.name }.joined(separator: ", "))")
-        }
-
-        // Show permission UI and wait for user decision
         return await withCheckedContinuation { continuation in
-            print("AgentSession: Showing permission alert")
             self.permissionRequest = request
             self.showingPermissionAlert = true
-
-            // Store continuation to resume when user makes decision
             self.permissionContinuation = continuation
         }
     }
 
-    // Call this when user makes permission decision
     func respondToPermission(optionId: String) {
-        print("AgentSession: User responded with optionId: \(optionId)")
-
         showingPermissionAlert = false
         permissionRequest = nil
 
@@ -709,7 +662,6 @@ class AgentSession: ObservableObject, ACPClientDelegate {
             let response = RequestPermissionResponse(outcome: outcome)
             continuation.resume(returning: response)
             permissionContinuation = nil
-            print("AgentSession: Sent permission response - outcome: selected, optionId: \(optionId)")
         }
     }
 }
@@ -724,6 +676,9 @@ struct MessageItem: Identifiable {
     var toolCalls: [ToolCall] = []
     var contentBlocks: [ContentBlock] = []
     var isComplete: Bool = true
+    var startTime: Date? // When agent started responding (first chunk)
+    var executionTime: TimeInterval? // Time taken to generate response in seconds
+    var requestId: String? // Track which user request this response belongs to
 }
 
 enum MessageRole {

@@ -328,6 +328,7 @@ struct ToolCall: Codable, Identifiable {
     let kind: ToolKind
     let status: ToolStatus
     let content: [ContentBlock]
+    var timestamp: Date = Date()
 
     var id: String { toolCallId }
 

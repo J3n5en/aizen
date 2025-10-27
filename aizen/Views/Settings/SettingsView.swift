@@ -58,6 +58,12 @@ struct SettingsView: View {
                 Label("Agents", systemImage: "brain")
             }
             .tag("agents")
+
+            AdvancedSettingsView()
+                .tabItem {
+                    Label("Advanced", systemImage: "gearshape.2")
+                }
+                .tag("advanced")
         }
         .frame(width: 600, height: 600)
     }

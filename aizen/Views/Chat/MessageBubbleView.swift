@@ -88,6 +88,12 @@ struct MessageBubbleView: View {
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
 
+                            if message.role == .agent, let executionTime = message.executionTime {
+                                Text(formatExecutionTime(executionTime))
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
+
                             if message.role == .user {
                                 Spacer()
 
@@ -162,6 +168,18 @@ struct MessageBubbleView: View {
         formatter.timeStyle = .short
         formatter.dateStyle = .none
         return formatter.string(from: date)
+    }
+
+    private func formatExecutionTime(_ seconds: TimeInterval) -> String {
+        if seconds < 1 {
+            return String(format: "%.2fs", seconds)
+        } else if seconds < 60 {
+            return String(format: "%.1fs", seconds)
+        } else {
+            let minutes = Int(seconds) / 60
+            let remainingSeconds = Int(seconds) % 60
+            return "\(minutes)m \(remainingSeconds)s"
+        }
     }
 }
 

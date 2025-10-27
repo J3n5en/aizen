@@ -15,13 +15,7 @@ struct MessageContentView: View {
     var isComplete: Bool = true
 
     var body: some View {
-        if isComplete {
-            MarkdownRenderedView(content: content)
-        } else {
-            Text(content)
-                .textSelection(.enabled)
-                .opacity(0.9)
-        }
+        MarkdownRenderedView(content: content, isStreaming: !isComplete)
     }
 }
 
@@ -29,6 +23,7 @@ struct MessageContentView: View {
 
 struct MarkdownRenderedView: View {
     let content: String
+    var isStreaming: Bool = false
 
     private var renderedBlocks: [MarkdownBlock] {
         let document = Document(parsing: content)
@@ -42,6 +37,7 @@ struct MarkdownRenderedView: View {
                 case .paragraph(let attributedText):
                     Text(attributedText)
                         .textSelection(.enabled)
+                        .opacity(isStreaming && index == renderedBlocks.count - 1 ? 0.9 : 1.0)
                 case .heading(let attributedText, let level):
                     Text(attributedText)
                         .font(fontForHeading(level: level))

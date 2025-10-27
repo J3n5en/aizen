@@ -13,8 +13,13 @@ struct CodeBlockView: View {
     let language: String?
 
     @State private var showCopyConfirmation = false
+    @State private var highlightedText: AttributedString?
+
+    private let highlight = Highlight()
 
     var body: some View {
+      
+        
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 if let lang = language, !lang.isEmpty {
@@ -22,9 +27,9 @@ struct CodeBlockView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-
+                
                 Spacer()
-
+                
                 Button(action: copyCode) {
                     Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
                         .font(.caption)
@@ -36,26 +41,27 @@ struct CodeBlockView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                if let lang = language,
-                   !lang.isEmpty,
-                   !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                   let highlightLang = LanguageDetection.highlightLanguageFromFence(lang) {
-                    CodeText(code)
-                        .highlightLanguage(highlightLang)
-                        .codeTextColors(.theme(.github))
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(code)
-                        .font(.system(.body, design: .monospaced))
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            
+            ScrollView(.horizontal, showsIndicators: true) {
+                Group  {
+                    if let highlighted = highlightedText {
+                        Text(highlighted)
+                    } else {
+                        Text(code)
+                            .foregroundColor(.primary)
+                    }
                 }
+                .font(.system(.body, design: .monospaced))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: true, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
             }
-            .frame(maxHeight: 400)
-            .background(Color(nsColor: .textBackgroundColor))
+            .padding(8)
+            .task(id: code) {
+                await performHighlight()
+            }
+         
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
@@ -76,6 +82,27 @@ struct CodeBlockView: View {
             withAnimation {
                 showCopyConfirmation = false
             }
+        }
+    }
+
+    private func performHighlight() async {
+        do {
+            let attributed: AttributedString
+            if let lang = language,
+               !lang.isEmpty,
+               let highlightLang = LanguageDetection.highlightLanguageFromFence(lang) {
+                attributed = try await highlight.attributedText(
+                    code,
+                    language: highlightLang.rawValue,
+                    colors: .dark(.github)
+                )
+            } else {
+                attributed = try await highlight.attributedText(code)
+            }
+            highlightedText = attributed
+        } catch {
+            // Fallback to plain text on error
+            highlightedText = AttributedString(code)
         }
     }
 }
