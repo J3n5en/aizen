@@ -1,110 +1,15 @@
+//
+//  ChatSessionView.swift
+//  aizen
+//
+//  Chat session interface with messages and input
+//
+
 import SwiftUI
 import CoreData
 import Combine
 import UniformTypeIdentifiers
 
-struct ChatTabView: View {
-    let worktree: Worktree
-    @Binding var selectedSessionId: UUID?
-
-    private let sessionManager = ChatSessionManager.shared
-
-    var sessions: [ChatSession] {
-        let sessions = (worktree.chatSessions as? Set<ChatSession>) ?? []
-        return sessions.sorted { ($0.createdAt ?? Date()) < ($1.createdAt ?? Date()) }
-    }
-
-    var body: some View {
-        if sessions.isEmpty {
-            chatEmptyState
-        } else {
-            ZStack {
-                ForEach(sessions) { session in
-                    ChatSessionView(
-                        worktree: worktree,
-                        session: session,
-                        sessionManager: sessionManager
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .opacity(selectedSessionId == session.id ? 1 : 0)
-                }
-            }
-            .onAppear {
-                if selectedSessionId == nil {
-                    selectedSessionId = sessions.first?.id
-                }
-            }
-        }
-    }
-
-    private var chatEmptyState: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            VStack(spacing: 16) {
-                Image(systemName: "message.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.secondary)
-
-                VStack(spacing: 8) {
-                    Text("No Chat Sessions")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-
-                    Text("Start a conversation with an AI agent")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 12) {
-                ForEach(AgentRegistry.shared.availableAgents.prefix(3), id: \.self) { agent in
-                    Button {
-                        createNewSession(withAgent: agent)
-                    } label: {
-                        VStack(spacing: 8) {
-                            AgentIconView(agent: agent, size: 12)
-                            Text(agent.capitalized)
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .frame(width: 100, height: 80)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(.separator.opacity(0.3), lineWidth: 1)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    private func createNewSession(withAgent agent: String) {
-        guard let context = worktree.managedObjectContext else { return }
-
-        let session = ChatSession(context: context)
-        session.id = UUID()
-        session.title = agent.capitalized
-        session.agentName = agent
-        session.createdAt = Date()
-        session.worktree = worktree
-
-        do {
-            try context.save()
-            selectedSessionId = session.id
-        } catch {
-            print("Failed to create chat session: \(error)")
-        }
-    }
-}
-
-
-// This will contain the actual chat interface - extracted from old ChatTabView
 struct ChatSessionView: View {
     let worktree: Worktree
     @ObservedObject var session: ChatSession
@@ -150,7 +55,7 @@ struct ChatSessionView: View {
                         ScrollView(showsIndicators: false) {
                             LazyVStack(spacing: 20) {
                                 ForEach(messages) { message in
-                                    let _ = print("ChatTabView: Rendering message \(message.id) - role: \(message.role), content: \(message.content.prefix(50))...")
+                                    let _ = print("ChatSessionView: Rendering message \(message.id) - role: \(message.role), content: \(message.content.prefix(50))...")
                                     VStack(alignment: .leading, spacing: 8) {
                                         MessageBubbleView(message: message, agentName: message.role == .agent ? selectedAgent : nil)
                                             .id(message.id)
@@ -201,7 +106,6 @@ struct ChatSessionView: View {
                     Spacer(minLength: 0)
 
                     VStack(spacing: 8) {
-                        // Permission buttons row
                         if let agentSession = currentAgentSession, showingPermissionAlert, let request = currentPermissionRequest {
                             HStack {
                                 permissionButtonsView(session: agentSession, request: request)
@@ -211,7 +115,6 @@ struct ChatSessionView: View {
                             .padding(.horizontal, 20)
                         }
 
-                        // Attachments row
                         if !attachments.isEmpty {
                             HStack(spacing: 8) {
                                 ForEach(attachments, id: \.self) { attachment in
@@ -222,9 +125,7 @@ struct ChatSessionView: View {
                             .padding(.horizontal, 20)
                         }
 
-                        // Selectors row
                         HStack(spacing: 8) {
-                            // Agent picker button
                             Menu {
                                 ForEach(AgentRegistry.shared.availableAgents, id: \.self) { agent in
                                     Button {
@@ -256,7 +157,6 @@ struct ChatSessionView: View {
                             .menuStyle(.borderlessButton)
                             .buttonStyle(.plain)
 
-                            // Mode selector
                             if let agentSession = currentAgentSession, !agentSession.availableModes.isEmpty {
                                 modeSelectorView
                             }
@@ -330,14 +230,12 @@ struct ChatSessionView: View {
         session.title = newAgent.capitalized
         try? viewContext.save()
 
-        // Clear current session
         if let sessionId = session.id {
             sessionManager.removeAgentSession(for: sessionId)
         }
         currentAgentSession = nil
         messages = []
 
-        // Setup new session
         setupAgentSession()
 
         pendingAgentSwitch = nil
@@ -346,7 +244,6 @@ struct ChatSessionView: View {
     private func setupAgentSession() {
         guard let sessionId = session.id else { return }
 
-        // Check if we already have a session
         if let existingSession = sessionManager.getAgentSession(for: sessionId) {
             currentAgentSession = existingSession
             setupSessionObservers(session: existingSession)
@@ -359,7 +256,6 @@ struct ChatSessionView: View {
             return
         }
 
-        // Create new agent session
         agentRouter.ensureSession(for: selectedAgent)
         if let newSession = agentRouter.getSession(for: selectedAgent) {
             sessionManager.setAgentSession(newSession, for: sessionId)
@@ -402,9 +298,6 @@ struct ChatSessionView: View {
 
         scrollToBottom()
     }
-
-    // All the other helper methods from the original ChatTabView...
-    // (inputView, sendMessage, setupSessionObservers, etc. - copying from backup)
 
     private var inputView: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -492,13 +385,11 @@ struct ChatSessionView: View {
             .padding(.vertical, 8)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: inputCornerRadius, style: .continuous))
             .overlay {
-                // Regular border
                 if currentAgentSession?.currentModeId != "plan" {
                     RoundedRectangle(cornerRadius: inputCornerRadius, style: .continuous)
                         .strokeBorder(.separator.opacity(isHoveringInput ? 0.5 : 0.2), lineWidth: 0.5)
                 }
 
-                // Animated dashed border for plan mode
                 if currentAgentSession?.currentModeId == "plan" {
                     RoundedRectangle(cornerRadius: inputCornerRadius, style: .continuous)
                         .strokeBorder(
@@ -506,13 +397,11 @@ struct ChatSessionView: View {
                         )
                         .foregroundStyle(.blue.opacity(0.6))
                         .onAppear {
-                            // Start animation immediately when border appears
                             withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                                 dashPhase = -20
                             }
                         }
                         .onDisappear {
-                            // Reset when border disappears
                             dashPhase = 0
                         }
                 }
@@ -566,7 +455,7 @@ struct ChatSessionView: View {
     private var textEditorHeight: CGFloat {
         let lineCount = max(1, inputText.components(separatedBy: .newlines).count)
         let lineHeight: CGFloat = 18
-        let baseHeight: CGFloat = lineHeight + 12 // 30pt for single line
+        let baseHeight: CGFloat = lineHeight + 12
         return min(max(baseHeight, CGFloat(lineCount) * lineHeight + 12), 120)
     }
 
@@ -574,7 +463,6 @@ struct ChatSessionView: View {
         let messageText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !messageText.isEmpty else { return }
 
-        // Capture attachments before clearing
         let messageAttachments = attachments
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -621,7 +509,6 @@ struct ChatSessionView: View {
                     self.messages.append(errorMessage)
                 }
 
-                // Restore attachments if send failed
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     self.attachments = messageAttachments
                 }
@@ -639,9 +526,9 @@ struct ChatSessionView: View {
         session.$messages
             .receive(on: DispatchQueue.main)
             .sink { newMessages in
-                print("ChatTabView: Received \(newMessages.count) messages")
+                print("ChatSessionView: Received \(newMessages.count) messages")
                 if let lastMsg = newMessages.last {
-                    print("ChatTabView: Last message - role: \(lastMsg.role), content length: \(lastMsg.content.count), first 100 chars: \(String(lastMsg.content.prefix(100)))")
+                    print("ChatSessionView: Last message - role: \(lastMsg.role), content length: \(lastMsg.content.count), first 100 chars: \(String(lastMsg.content.prefix(100)))")
                 }
                 messages = newMessages
 
@@ -692,16 +579,16 @@ struct ChatSessionView: View {
             .receive(on: DispatchQueue.main)
             .sink { plan in
                 if let p = plan {
-                    print("ChatTabView: Received agent plan with \(p.entries.count) entries")
+                    print("ChatSessionView: Received agent plan with \(p.entries.count) entries")
                     for entry in p.entries {
-                        print("ChatTabView: Plan entry - \(entry.content)")
+                        print("ChatSessionView: Plan entry - \(entry.content)")
                     }
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         showingAgentPlan = true
                     }
-                    print("ChatTabView: Set showingAgentPlan = true")
+                    print("ChatSessionView: Set showingAgentPlan = true")
                 } else {
-                    print("ChatTabView: Agent plan cleared")
+                    print("ChatSessionView: Agent plan cleared")
                 }
             }
             .store(in: &cancellables)
@@ -709,7 +596,7 @@ struct ChatSessionView: View {
         session.$showingPermissionAlert
             .receive(on: DispatchQueue.main)
             .sink { showing in
-                print("ChatTabView: Permission alert visibility changed to: \(showing)")
+                print("ChatSessionView: Permission alert visibility changed to: \(showing)")
                 showingPermissionAlert = showing
             }
             .store(in: &cancellables)
@@ -717,7 +604,7 @@ struct ChatSessionView: View {
         session.$permissionRequest
             .receive(on: DispatchQueue.main)
             .sink { request in
-                print("ChatTabView: Permission request updated: \(request?.toolCall?.toolCallId ?? "nil")")
+                print("ChatSessionView: Permission request updated: \(request?.toolCall?.toolCallId ?? "nil")")
                 currentPermissionRequest = request
             }
             .store(in: &cancellables)
@@ -890,7 +777,7 @@ struct ChatSessionView: View {
                     Text(currentMode.name)
                         .font(.system(size: 12, weight: .medium))
                 }
-             
+
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -1125,9 +1012,6 @@ struct ChatSessionView: View {
 
 }
 
-// Keep the existing helper views from ChatTabView.swift
-
-
 // MARK: - Shimmer Effect
 
 struct ShimmerEffect: ViewModifier {
@@ -1162,6 +1046,8 @@ struct ShimmerEffect: ViewModifier {
             }
     }
 }
+
+// MARK: - Authentication Sheet
 
 struct AuthenticationSheet: View {
     @ObservedObject var session: AgentSession
@@ -1358,250 +1244,6 @@ struct AuthenticationSheet: View {
         }
     }
 }
-
-// MARK: - Attachment Chip with Delete
-
-struct AttachmentChipWithDelete: View {
-    let url: URL
-    let onDelete: () -> Void
-
-    @State private var showingDetail = false
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Button {
-                showingDetail = true
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: iconName)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-
-                    Text(fileName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                onDelete()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .opacity(isHovering ? 1 : 0.6)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovering = hovering
-            }
-        }
-        .sheet(isPresented: $showingDetail) {
-            InputAttachmentDetailView(url: url)
-        }
-    }
-
-    private var iconName: String {
-        let ext = url.pathExtension.lowercased()
-        switch ext {
-        case "jpg", "jpeg", "png", "gif", "heic", "bmp", "tiff":
-            return "photo.fill"
-        case "pdf":
-            return "doc.text.fill"
-        case "txt", "md", "rtf":
-            return "doc.text"
-        case "mp3", "wav", "aiff", "m4a":
-            return "waveform"
-        case "mp4", "mov", "avi":
-            return "play.rectangle.fill"
-        case "zip", "tar", "gz":
-            return "doc.zipper"
-        default:
-            return "doc.fill"
-        }
-    }
-
-    private var fileName: String {
-        url.lastPathComponent
-    }
-}
-
-// MARK: - Input Attachment Detail View
-
-struct InputAttachmentDetailView: View {
-    let url: URL
-    @Environment(\.dismiss) var dismiss
-
-    @State private var fileContent: String?
-    @State private var image: NSImage?
-    @State private var fileSize: String = ""
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(url.lastPathComponent)
-                        .font(.headline)
-                    Text(fileSize)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding()
-            .background(.ultraThinMaterial)
-
-            Divider()
-
-            // Content
-            ScrollView {
-                Group {
-                    if let image = image {
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity)
-                    } else if let content = fileContent {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(content)
-                                .font(.system(.body, design: .monospaced))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    } else {
-                        VStack(spacing: 12) {
-                            Image(systemName: "doc.fill")
-                                .font(.system(size: 48))
-                                .foregroundStyle(.secondary)
-
-                            Text("Preview not available")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-
-                            Text(url.path)
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding()
-                    }
-                }
-                .padding()
-            }
-        }
-        .frame(width: 700, height: 500)
-        .onAppear {
-            loadFileContent()
-        }
-    }
-
-    private func loadFileContent() {
-        // Calculate file size
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let size = attributes[.size] as? Int64 {
-            fileSize = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
-        }
-
-        // Try to load as image
-        if let loadedImage = NSImage(contentsOf: url) {
-            image = loadedImage
-            return
-        }
-
-        // Try to load as text
-        if let content = try? String(contentsOf: url, encoding: .utf8) {
-            // Limit content to first 10000 characters to avoid performance issues
-            fileContent = String(content.prefix(10000))
-            if content.count > 10000 {
-                fileContent! += "\n\n... (content truncated)"
-            }
-        }
-    }
-}
-
-struct CustomTextEditor: NSViewRepresentable {
-    @Binding var text: String
-    let onSubmit: () -> Void
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        let textView = scrollView.documentView as! NSTextView
-
-        // Hide scrollbar
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
-
-        textView.delegate = context.coordinator
-        textView.font = .systemFont(ofSize: 14)
-        textView.isRichText = false
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
-        textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 0, height: 6)
-        textView.textContainer?.lineFragmentPadding = 0
-
-        return scrollView
-    }
-
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        let textView = nsView.documentView as! NSTextView
-        if textView.string != text {
-            textView.string = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit)
-    }
-
-    class Coordinator: NSObject, NSTextViewDelegate {
-        @Binding var text: String
-        let onSubmit: () -> Void
-
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
-            _text = text
-            self.onSubmit = onSubmit
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            text = textView.string
-        }
-
-        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSTextView.insertNewline(_:)) {
-                if NSEvent.modifierFlags.contains(.shift) {
-                    textView.insertNewlineIgnoringFieldEditor(nil)
-                    return true
-                } else {
-                    onSubmit()
-                    return true
-                }
-            }
-            return false
-        }
-    }
-}
-
 
 // MARK: - Chat Actions for Keyboard Shortcuts
 
