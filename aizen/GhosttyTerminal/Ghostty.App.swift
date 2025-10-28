@@ -58,11 +58,7 @@ extension Ghostty {
 
         @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
         @AppStorage("terminalFontSize") private var terminalFontSize = 12.0
-        @AppStorage("terminalBackgroundColor") private var terminalBackgroundColor = "#1e1e2e"
-        @AppStorage("terminalForegroundColor") private var terminalForegroundColor = "#cdd6f4"
-        @AppStorage("terminalCursorColor") private var terminalCursorColor = "#f5e0dc"
-        @AppStorage("terminalSelectionBackground") private var terminalSelectionBackground = "#585b70"
-        @AppStorage("terminalPalette") private var terminalPalette = "#45475a,#f38ba8,#a6e3a1,#f9e2af,#89b4fa,#f5c2e7,#94e2d5,#a6adc8,#585b70,#f37799,#89d88b,#ebd391,#74a8fc,#f2aede,#6bd7ca,#bac2de"
+        @AppStorage("terminalThemeName") private var terminalThemeName = "Catppuccin Mocha"
 
         // MARK: - Initialization
 
@@ -116,53 +112,11 @@ extension Ghostty {
                 shell-integration = \(shellName)
                 shell-integration-features = cursor,sudo,title
 
+                theme = \(terminalThemeName)
+
                 """
 
-                // Check if we should use a Ghostty theme file
-                if let themeFile = findGhosttyTheme(for: self.terminalBackgroundColor) {
-                    configContent += "theme = \(themeFile)\n"
-                    Ghostty.logger.info("Using Ghostty theme: \(themeFile) for BG: \(self.terminalBackgroundColor)")
-                } else {
-                    // Fall back to writing colors directly
-                    Ghostty.logger.info("No theme match for BG: \(self.terminalBackgroundColor), using direct colors")
-                    configContent += GhosttyConfigWriter.writeConfigContent(
-                        backgroundColor: terminalBackgroundColor,
-                        foregroundColor: terminalForegroundColor,
-                        cursorColor: terminalCursorColor,
-                        selectionBackground: terminalSelectionBackground,
-                        palette: terminalPalette
-                    )
-                }
-
-                try configContent.write(toFile: configFilePath, atomically: true, encoding: .utf8)
-
-                // Copy theme directory to config location for Ghostty to find
-                let themesDir = (ghosttyConfigDir as NSString).appendingPathComponent("themes")
-
-                // Try multiple possible source locations for themes
-                var sourceThemesDir: String?
-                let possiblePaths = [
-                    (Bundle.main.resourcePath! as NSString).appendingPathComponent("ghostty-themes"),
-                    "/Users/uyakauleu/development/aizen/aizen/Resources/ghostty-themes"
-                ]
-
-                for path in possiblePaths {
-                    if FileManager.default.fileExists(atPath: path) {
-                        sourceThemesDir = path
-                        break
-                    }
-                }
-
-                if let sourceThemesDir = sourceThemesDir {
-                    if FileManager.default.fileExists(atPath: themesDir) {
-                        try? FileManager.default.removeItem(atPath: themesDir)
-                    }
-                    try FileManager.default.copyItem(atPath: sourceThemesDir, toPath: themesDir)
-                    let themeCount = try FileManager.default.contentsOfDirectory(atPath: themesDir).count
-                    Ghostty.logger.info("Copied \(themeCount) theme files from \(sourceThemesDir) to config directory")
-                } else {
-                    Ghostty.logger.warning("Could not find ghostty-themes directory in bundle or development path")
-                }
+                Ghostty.logger.info("Using Ghostty theme: \(self.terminalThemeName)")
 
                 try configContent.write(toFile: configFilePath, atomically: true, encoding: .utf8)
 
@@ -203,49 +157,6 @@ extension Ghostty {
             self.readiness = .ready
 
             Ghostty.logger.info("Ghostty app initialized successfully")
-        }
-
-        // MARK: - Theme Mapping
-
-        /// Find Ghostty theme name based on background color
-        /// - Parameter backgroundColor: Hex color string (e.g., "#1e1e2e")
-        /// - Returns: Ghostty theme name if a match is found, nil otherwise
-        private func findGhosttyTheme(for backgroundColor: String) -> String? {
-            let normalizedBg = backgroundColor.lowercased().trimmingCharacters(in: .whitespaces)
-
-            // Map common themes based on their background colors
-            let themeMap: [String: String] = [
-                "#1e1e2e": "Catppuccin Mocha",
-                "#303446": "Catppuccin Frappe",
-                "#eff1f5": "Catppuccin Latte",
-                "#24273a": "Catppuccin Macchiato",
-                "#282c34": "One Dark",
-                "#1d1f21": "Tomorrow Night",
-                "#002b36": "Solarized Dark",
-                "#fdf6e3": "Builtin Solarized Light",
-                "#2e3440": "Nord",
-                "#0c0c0c": "Campbell",
-                "#282a36": "Dracula",
-                "#1f1d2e": "Rosé Pine",
-                "#191724": "Rosé Pine Moon",
-                "#faf4ed": "Rosé Pine Dawn",
-                "#292d3e": "Material",
-                "#263238": "Material Darker",
-                "#212121": "Material Ocean",
-                "#fafafa": "Material Light",
-                "#1a1b26": "Tokyo Night",
-                "#16161e": "Tokyo Night Storm",
-                "#d5d6db": "Tokyo Night Light",
-                "#011627": "Night Owl",
-                "#f9f9f9": "Atom One Light",
-                "#0e1419": "Ayu Dark",
-                "#f8f9fa": "Ayu Light",
-                "#1c1e26": "Horizon",
-                "#2b2d3a": "Gruvbox Dark",
-                "#fbf1c7": "Gruvbox Light"
-            ]
-
-            return themeMap[normalizedBg]
         }
 
         nonisolated deinit {
@@ -318,23 +229,11 @@ extension Ghostty {
                 shell-integration = \(shellName)
                 shell-integration-features = cursor,sudo,title
 
+                theme = \(terminalThemeName)
+
                 """
 
-                // Check if we should use a Ghostty theme file
-                if let themeFile = findGhosttyTheme(for: self.terminalBackgroundColor) {
-                    configContent += "theme = \(themeFile)\n"
-                    Ghostty.logger.info("Using Ghostty theme: \(themeFile) for BG: \(self.terminalBackgroundColor)")
-                } else {
-                    // Fall back to writing colors directly
-                    Ghostty.logger.info("No theme match for BG: \(self.terminalBackgroundColor), using direct colors")
-                    configContent += GhosttyConfigWriter.writeConfigContent(
-                        backgroundColor: terminalBackgroundColor,
-                        foregroundColor: terminalForegroundColor,
-                        cursorColor: terminalCursorColor,
-                        selectionBackground: terminalSelectionBackground,
-                        palette: terminalPalette
-                    )
-                }
+                Ghostty.logger.info("Reloading with theme: \(self.terminalThemeName)")
 
                 try configContent.write(toFile: configFilePath, atomically: true, encoding: .utf8)
 
@@ -348,7 +247,7 @@ extension Ghostty {
                 // Unset XDG_CONFIG_HOME so it doesn't affect fish/shell config loading
                 unsetenv("XDG_CONFIG_HOME")
 
-                Ghostty.logger.info("Reloaded config - Font: \(self.terminalFontName) \(Int(self.terminalFontSize))pt, Theme BG: \(self.self.terminalBackgroundColor)")
+                Ghostty.logger.info("Reloaded config - Font: \(self.terminalFontName) \(Int(self.terminalFontSize))pt, Theme: \(self.terminalThemeName)")
             } catch {
                 Ghostty.logger.warning("Failed to write config during reload: \(error)")
             }
