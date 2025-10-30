@@ -89,20 +89,20 @@ extension Ghostty {
     /// mapped to a KeyEquivalent.
     static let keyToEquivalent: [UInt32 : KeyEquivalent] = [
         // Function keys
-        GHOSTTY_KEY_ARROW_UP: .upArrow,
-        GHOSTTY_KEY_ARROW_DOWN: .downArrow,
-        GHOSTTY_KEY_ARROW_LEFT: .leftArrow,
-        GHOSTTY_KEY_ARROW_RIGHT: .rightArrow,
-        GHOSTTY_KEY_HOME: .home,
-        GHOSTTY_KEY_END: .end,
-        GHOSTTY_KEY_DELETE: .delete,
-        GHOSTTY_KEY_PAGE_UP: .pageUp,
-        GHOSTTY_KEY_PAGE_DOWN: .pageDown,
-        GHOSTTY_KEY_ESCAPE: .escape,
-        GHOSTTY_KEY_ENTER: .return,
-        GHOSTTY_KEY_TAB: .tab,
-        GHOSTTY_KEY_BACKSPACE: .delete,
-        GHOSTTY_KEY_SPACE: .space,
+        GHOSTTY_KEY_ARROW_UP.rawValue: .upArrow,
+        GHOSTTY_KEY_ARROW_DOWN.rawValue: .downArrow,
+        GHOSTTY_KEY_ARROW_LEFT.rawValue: .leftArrow,
+        GHOSTTY_KEY_ARROW_RIGHT.rawValue: .rightArrow,
+        GHOSTTY_KEY_HOME.rawValue: .home,
+        GHOSTTY_KEY_END.rawValue: .end,
+        GHOSTTY_KEY_DELETE.rawValue: .delete,
+        GHOSTTY_KEY_PAGE_UP.rawValue: .pageUp,
+        GHOSTTY_KEY_PAGE_DOWN.rawValue: .pageDown,
+        GHOSTTY_KEY_ESCAPE.rawValue: .escape,
+        GHOSTTY_KEY_ENTER.rawValue: .return,
+        GHOSTTY_KEY_TAB.rawValue: .tab,
+        GHOSTTY_KEY_BACKSPACE.rawValue: .delete,
+        GHOSTTY_KEY_SPACE.rawValue: .space,
     ]
 }
 
