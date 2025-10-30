@@ -51,22 +51,19 @@ jobs:
           # Install Sparkle tools
           brew install sparkle
 
-      - name: Build app
+      - name: Build and archive app
         run: |
-          xcodebuild clean build \
+          xcodebuild clean archive \
             -scheme "${{ env.SCHEME }}" \
             -configuration "${{ env.CONFIGURATION }}" \
-            -derivedDataPath build/DerivedData \
+            -archivePath build/aizen.xcarchive \
             -arch arm64 \
-            ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            ONLY_ACTIVE_ARCH=NO
 
-      - name: Create app bundle
+      - name: Export app bundle
         run: |
           mkdir -p build/dmg
-          cp -R build/DerivedData/Build/Products/${{ env.CONFIGURATION }}/aizen.app build/dmg/
+          cp -R build/aizen.xcarchive/Products/Applications/aizen.app build/dmg/
 
       # Conditional code signing
       - name: Import signing certificate
