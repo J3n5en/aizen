@@ -115,3 +115,7 @@ Temporary Items
 .apdisk
 
 .aizen/
+
+# Sparkle signing keys
+.sparkle-keys/
+*.pem

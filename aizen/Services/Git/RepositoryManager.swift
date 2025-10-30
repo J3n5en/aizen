@@ -107,8 +107,11 @@ class RepositoryManager: ObservableObject {
     }
 
     func deleteRepository(_ repository: Repository) throws {
+        let workspace = repository.workspace
         viewContext.delete(repository)
         try viewContext.save()
+        // Force refresh the workspace's fault state to trigger UI updates
+        workspace?.objectWillChange.send()
     }
 
     func refreshRepository(_ repository: Repository) async throws {

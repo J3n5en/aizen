@@ -39,10 +39,13 @@ struct WorkspaceSidebarView: View {
         guard let workspace = selectedWorkspace else { return [] }
         let repos = (workspace.repositories as? Set<Repository>) ?? []
 
+        // Filter out deleted/faulted Core Data objects
+        let validRepos = repos.filter { !$0.isFault && !$0.isDeleted }
+
         if searchText.isEmpty {
-            return repos.sorted { ($0.name ?? "") < ($1.name ?? "") }
+            return validRepos.sorted { ($0.name ?? "") < ($1.name ?? "") }
         } else {
-            return repos
+            return validRepos
                 .filter { ($0.name ?? "").localizedCaseInsensitiveContains(searchText) }
                 .sorted { ($0.name ?? "") < ($1.name ?? "") }
         }
@@ -173,6 +176,11 @@ struct WorkspaceSidebarView: View {
                         repositoryManager: repositoryManager,
                         onSelect: {
                             selectedRepository = repository
+                            // Auto-select primary worktree if no worktree is selected
+                            if selectedWorktree == nil {
+                                let worktrees = (repository.worktrees as? Set<Worktree>) ?? []
+                                selectedWorktree = worktrees.first(where: { $0.isPrimary })
+                            }
                         },
                         onWorktreeSelect: { worktree in
                             selectedRepository = repository

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import Sparkle
 
 @main
 struct aizenApp: App {
@@ -14,6 +15,9 @@ struct aizenApp: App {
     @StateObject private var ghosttyApp = Ghostty.App()
     @FocusedValue(\.terminalSplitActions) private var splitActions
     @FocusedValue(\.chatActions) private var chatActions
+
+    // Sparkle updater controller
+    private let updaterController: SPUStandardUpdaterController
 
     // Terminal settings observers
     @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
@@ -24,6 +28,13 @@ struct aizenApp: App {
         // Set launch source so libghostty knows to remove LANGUAGE env var
         // This makes terminal shells use system locale instead of macOS AppleLanguages
         setenv("GHOSTTY_MAC_LAUNCH_SOURCE", "app", 1)
+
+        // Initialize Sparkle updater
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
     }
 
     var body: some Scene {
@@ -51,6 +62,10 @@ struct aizenApp: App {
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1200, height: 800)
         .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+
             CommandGroup(after: .newItem) {
                 Button("Split Right") {
                     splitActions?.splitHorizontal()

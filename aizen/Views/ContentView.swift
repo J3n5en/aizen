@@ -104,6 +104,12 @@ struct ContentView: View {
                 previousWorktree = newWorktree
             }
         }
+        .onChange(of: selectedRepository) { oldValue, newValue in
+            if let repo = newValue, repo.isDeleted || repo.isFault {
+                selectedRepository = nil
+                selectedWorktree = nil
+            }
+        }
     }
 }
 

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		CC1234572EA241B30007DBB1 /* libghostty.a in Frameworks */ = {isa = PBXBuildFile; fileRef = CC1234562EA241B30007DBB1 /* libghostty.a */; };
 		CC128B182EAF8DD600EA9A50 /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC128B172EAF8DD600EA9A50 /* HighlightSwift */; };
+		CC128B1B2EAF8DD600EA9A50 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CC128B1A2EAF8DD600EA9A50 /* Sparkle */; };
 		CC6CA52B2EA25D9C001CADD7 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CCB04B722EA241B60007DBB1 /* SwiftTerm */; };
 		CC6CA52C2EA25D9D001CADD7 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = CCB04B732EA241B60007DBB1 /* Markdown */; };
 /* End PBXBuildFile section */
@@ -64,6 +65,7 @@
 				CC128B182EAF8DD600EA9A50 /* HighlightSwift in Frameworks */,
 				CC6CA52B2EA25D9C001CADD7 /* SwiftTerm in Frameworks */,
 				CC6CA52C2EA25D9D001CADD7 /* Markdown in Frameworks */,
+				CC128B1B2EAF8DD600EA9A50 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -136,6 +138,7 @@
 				CCB04B722EA241B60007DBB1 /* SwiftTerm */,
 				CCB04B732EA241B60007DBB1 /* Markdown */,
 				CC128B172EAF8DD600EA9A50 /* HighlightSwift */,
+				CC128B1A2EAF8DD600EA9A50 /* Sparkle */,
 			);
 			productName = aizen;
 			productReference = CCB04B422EA241B30007DBB1 /* aizen.app */;
@@ -223,6 +226,7 @@
 				CCB04B712EA241B60007DBB1 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				CCB04B742EA241B60007DBB1 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 				CC128B162EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "highlightswift" */,
+				CC128B192EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CCB04B432EA241B30007DBB1 /* Products */;
@@ -446,6 +450,8 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Aizen needs access to your microphone to record voice messages for transcription.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Aizen needs access to speech recognition to transcribe your voice messages to text.";
+				INFOPLIST_KEY_SUFeedURL = "https://r2.aizen.win/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "i71fQnr49FNgiXkBf4sKYd5pb7FjxI9HHh7EvJGnc/4=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -504,6 +510,8 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Aizen needs access to your microphone to record voice messages for transcription.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Aizen needs access to speech recognition to transcribe your voice messages to text.";
+				INFOPLIST_KEY_SUFeedURL = "https://r2.aizen.win/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "i71fQnr49FNgiXkBf4sKYd5pb7FjxI9HHh7EvJGnc/4=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -664,6 +672,14 @@
 				minimumVersion = 1.0.9;
 			};
 		};
+		CC128B192EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 		CCB04B712EA241B60007DBB1 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
@@ -687,6 +703,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC128B162EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "highlightswift" */;
 			productName = HighlightSwift;
+		};
+		CC128B1A2EAF8DD600EA9A50 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC128B192EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 		CCB04B722EA241B60007DBB1 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
