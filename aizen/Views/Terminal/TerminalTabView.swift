@@ -170,15 +170,15 @@ struct SplitTerminalView: View {
             .onAppear {
                 saveLayout()
             }
-            .onChange(of: layout) { _, _ in
+            .onChange(of: layout) { _ in
                 saveLayout()
             }
-            .onChange(of: focusedPaneId) { _, newValue in
+            .onChange(of: focusedPaneId) { newValue in
                 session.focusedPaneId = newValue
                 saveContext()
             }
-            .onChange(of: isSelected) { oldValue, newValue in
-                if newValue && !oldValue {
+            .onChange(of: isSelected) { newValue in
+                if newValue {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         let currentPane = focusedPaneId
                         focusedPaneId = ""
@@ -361,14 +361,14 @@ struct TerminalPaneView: View {
         .onTapGesture {
             onFocus()
         }
-        .onChange(of: isFocused) { oldValue, newValue in
-            if newValue && !oldValue {
+        .onChange(of: isFocused) { newValue in
+            if newValue {
                 shouldFocus = true
                 focusVersion += 1
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     shouldFocus = false
                 }
-            } else if !newValue && oldValue {
+            } else {
                 focusVersion += 1
             }
         }

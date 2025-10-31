@@ -13,7 +13,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>15.0</string>
+	<string>13.5</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Aizen needs access to your microphone to record voice messages for transcription.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

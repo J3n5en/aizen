@@ -42,17 +42,17 @@ struct aizenApp: App {
             ContentView(context: persistenceController.container.viewContext)
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
                 .environmentObject(ghosttyApp)
-                .onChange(of: terminalFontName) { _, _ in
+                .onChange(of: terminalFontName) { _ in
                     Task { @MainActor in
                         ghosttyApp.reloadConfig()
                     }
                 }
-                .onChange(of: terminalFontSize) { _, _ in
+                .onChange(of: terminalFontSize) { _ in
                     Task { @MainActor in
                         ghosttyApp.reloadConfig()
                     }
                 }
-                .onChange(of: terminalThemeName) { _, _ in
+                .onChange(of: terminalThemeName) { _ in
                     Task { @MainActor in
                         ghosttyApp.reloadConfig()
                     }

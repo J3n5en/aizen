@@ -54,10 +54,10 @@ struct ContentView: View {
                 )
                 .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
             } else {
-                ContentUnavailableView(
-                    String(localized: "contentView.selectRepository", bundle: .main),
+                placeholderView(
+                    titleKey: "contentView.selectRepository",
                     systemImage: "folder.badge.gearshape",
-                    description: Text("contentView.selectRepositoryDescription", bundle: .main)
+                    descriptionKey: "contentView.selectRepositoryDescription"
                 )
                 .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
             }
@@ -69,10 +69,10 @@ struct ContentView: View {
                     repositoryManager: repositoryManager
                 )
             } else {
-                ContentUnavailableView(
-                    String(localized: "contentView.selectWorktree", bundle: .main),
+                placeholderView(
+                    titleKey: "contentView.selectWorktree",
                     systemImage: "arrow.triangle.branch",
-                    description: Text("contentView.selectWorktreeDescription", bundle: .main)
+                    descriptionKey: "contentView.selectWorktreeDescription"
                 )
             }
         }
@@ -96,7 +96,7 @@ struct ContentView: View {
                 hasShownOnboarding = true
             }
         }
-        .onChange(of: selectedWorktree) { oldValue, newValue in
+        .onChange(of: selectedWorktree) { newValue in
             if let newWorktree = newValue, previousWorktree != newWorktree {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     columnVisibility = .doubleColumn
@@ -104,12 +104,46 @@ struct ContentView: View {
                 previousWorktree = newWorktree
             }
         }
-        .onChange(of: selectedRepository) { oldValue, newValue in
+        .onChange(of: selectedRepository) { newValue in
             if let repo = newValue, repo.isDeleted || repo.isFault {
                 selectedRepository = nil
                 selectedWorktree = nil
             }
         }
+    }
+}
+
+@ViewBuilder
+private func placeholderView(
+    titleKey: LocalizedStringKey,
+    systemImage: String,
+    descriptionKey: LocalizedStringKey
+) -> some View {
+    if #available(macOS 14.0, *) {
+        ContentUnavailableView(
+            titleKey,
+            systemImage: systemImage,
+            description: Text(descriptionKey)
+        )
+    } else {
+        VStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 50))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text(titleKey)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                Text(descriptionKey)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
 

@@ -86,7 +86,7 @@ struct AgentConfigView: View {
                 HStack {
                     TextField(LocalizedStringKey("settings.agents.executablePath"), text: $agentPath)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: agentPath) { _, newValue in
+                        .onChange(of: agentPath) { _ in
                             syncToRegistry()
                             validatePath()
                         }
