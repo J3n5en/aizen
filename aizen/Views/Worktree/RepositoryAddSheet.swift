@@ -10,16 +10,19 @@ import SwiftUI
 enum AddRepositoryMode {
     case clone
     case existing
+    case create
 }
 
 struct RepositoryAddSheet: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: Workspace
     @ObservedObject var repositoryManager: RepositoryManager
+    var onRepositoryAdded: ((Repository) -> Void)?
 
     @State private var mode: AddRepositoryMode = .existing
     @State private var cloneURL = ""
     @State private var selectedPath = ""
+    @State private var repositoryName = ""
     @State private var isProcessing = false
     @State private var errorMessage: String?
 
@@ -46,12 +49,16 @@ struct RepositoryAddSheet: View {
                             .tag(AddRepositoryMode.existing)
                         Label(String(localized: "repository.cloneFromURL"), systemImage: "arrow.down.circle")
                             .tag(AddRepositoryMode.clone)
+                        Label(String(localized: "repository.createNew"), systemImage: "plus.square")
+                            .tag(AddRepositoryMode.create)
                     }
                     .pickerStyle(.segmented)
                     .padding(.top)
 
                     if mode == .clone {
                         cloneView
+                    } else if mode == .create {
+                        createView
                     } else {
                         existingView
                     }
@@ -79,7 +86,7 @@ struct RepositoryAddSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button(mode == .clone ? String(localized: "general.clone") : String(localized: "general.add")) {
+                Button(actionButtonText) {
                     addRepository()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -158,11 +165,52 @@ struct RepositoryAddSheet: View {
         }
     }
 
+    private var createView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("repository.newLocation", bundle: .main)
+                .font(.headline)
+
+            HStack {
+                TextField(String(localized: "repository.selectFolder"), text: $selectedPath)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(true)
+
+                Button(String(localized: "repository.add.choose")) {
+                    selectNewRepositoryLocation()
+                }
+            }
+
+            Text("repository.create.name", bundle: .main)
+                .font(.headline)
+                .padding(.top, 8)
+
+            TextField(String(localized: "repository.create.namePlaceholder"), text: $repositoryName)
+                .textFieldStyle(.roundedBorder)
+
+            Text("repository.create.description", bundle: .main)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var isValid: Bool {
         if mode == .clone {
             return !cloneURL.isEmpty && !selectedPath.isEmpty
+        } else if mode == .create {
+            return !selectedPath.isEmpty && !repositoryName.isEmpty
         } else {
             return !selectedPath.isEmpty
+        }
+    }
+
+    private var actionButtonText: String {
+        switch mode {
+        case .clone:
+            return String(localized: "general.clone")
+        case .create:
+            return String(localized: "general.create")
+        case .existing:
+            return String(localized: "general.add")
         }
     }
 
@@ -190,6 +238,18 @@ struct RepositoryAddSheet: View {
         }
     }
 
+    private func selectNewRepositoryLocation() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = String(localized: "repository.panelSelectCreateLocation")
+
+        if panel.runModal() == .OK, let url = panel.url {
+            selectedPath = url.path
+        }
+    }
+
     private func addRepository() {
         guard !isProcessing else { return }
 
@@ -198,20 +258,29 @@ struct RepositoryAddSheet: View {
 
         Task {
             do {
+                let repository: Repository
+
                 if mode == .clone {
-                    _ = try await repositoryManager.cloneRepository(
+                    repository = try await repositoryManager.cloneRepository(
                         url: cloneURL,
                         destinationPath: selectedPath,
                         workspace: workspace
                     )
+                } else if mode == .create {
+                    repository = try await repositoryManager.createNewRepository(
+                        path: selectedPath,
+                        name: repositoryName,
+                        workspace: workspace
+                    )
                 } else {
-                    _ = try await repositoryManager.addExistingRepository(
+                    repository = try await repositoryManager.addExistingRepository(
                         path: selectedPath,
                         workspace: workspace
                     )
                 }
 
                 await MainActor.run {
+                    onRepositoryAdded?(repository)
                     dismiss()
                 }
             } catch {

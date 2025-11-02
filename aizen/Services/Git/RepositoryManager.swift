@@ -106,6 +106,22 @@ class RepositoryManager: ObservableObject {
         return try await addExistingRepository(path: destinationPath, workspace: workspace)
     }
 
+    func createNewRepository(path: String, name: String, workspace: Workspace) async throws -> Repository {
+        // Construct full path
+        let fullPath = (path as NSString).appendingPathComponent(name)
+
+        // Check if directory already exists
+        if FileManager.default.fileExists(atPath: fullPath) {
+            throw GitError.commandFailed(message: "Directory already exists")
+        }
+
+        // Initialize git repository
+        try await gitService.initRepository(at: fullPath)
+
+        // Add as existing repository
+        return try await addExistingRepository(path: fullPath, workspace: workspace)
+    }
+
     func deleteRepository(_ repository: Repository) throws {
         let workspace = repository.workspace
         viewContext.delete(repository)

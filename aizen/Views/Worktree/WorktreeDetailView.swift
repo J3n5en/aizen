@@ -192,32 +192,51 @@ struct WorktreeDetailView: View {
         guard let path = worktree.path else { return }
 
         do {
-            // Get numstat for additions/deletions (both staged and unstaged)
-            let diffProcess = Process()
-            diffProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            diffProcess.arguments = ["diff", "--numstat", "HEAD"]
-            diffProcess.currentDirectoryURL = URL(fileURLWithPath: path)
+            // Check if repo has any commits (HEAD exists)
+            let revParseProcess = Process()
+            revParseProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            revParseProcess.arguments = ["rev-parse", "--verify", "HEAD"]
+            revParseProcess.currentDirectoryURL = URL(fileURLWithPath: path)
 
-            let diffPipe = Pipe()
-            diffProcess.standardOutput = diffPipe
+            let nullPipe = Pipe()
+            revParseProcess.standardOutput = nullPipe
+            revParseProcess.standardError = nullPipe
 
-            try diffProcess.run()
-            diffProcess.waitUntilExit()
+            try revParseProcess.run()
+            revParseProcess.waitUntilExit()
 
-            let diffData = diffPipe.fileHandleForReading.readDataToEndOfFile()
-            let diffOutput = String(data: diffData, encoding: .utf8) ?? ""
+            let hasCommits = revParseProcess.terminationStatus == 0
 
             var additions = 0
             var deletions = 0
 
-            for line in diffOutput.components(separatedBy: .newlines) {
-                let parts = line.split(separator: "\t")
-                if parts.count >= 2 {
-                    if let add = Int(parts[0]) {
-                        additions += add
-                    }
-                    if let del = Int(parts[1]) {
-                        deletions += del
+            if hasCommits {
+                // Get numstat for additions/deletions (both staged and unstaged)
+                let diffProcess = Process()
+                diffProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                diffProcess.arguments = ["diff", "--numstat", "HEAD"]
+                diffProcess.currentDirectoryURL = URL(fileURLWithPath: path)
+
+                let diffPipe = Pipe()
+                diffProcess.standardOutput = diffPipe
+                let errorPipe = Pipe()
+                diffProcess.standardError = errorPipe
+
+                try diffProcess.run()
+                diffProcess.waitUntilExit()
+
+                let diffData = diffPipe.fileHandleForReading.readDataToEndOfFile()
+                let diffOutput = String(data: diffData, encoding: .utf8) ?? ""
+
+                for line in diffOutput.components(separatedBy: .newlines) {
+                    let parts = line.split(separator: "\t")
+                    if parts.count >= 2 {
+                        if let add = Int(parts[0]) {
+                            additions += add
+                        }
+                        if let del = Int(parts[1]) {
+                            deletions += del
+                        }
                     }
                 }
             }

@@ -189,6 +189,23 @@ actor GitService {
         _ = try await executeGit(arguments: ["clone", url, path], at: nil)
     }
 
+    // MARK: - Initialize Repository
+
+    func initRepository(at path: String, initialBranch: String = "main") async throws {
+        // Create directory if doesn't exist
+        try FileManager.default.createDirectory(
+            atPath: path,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+
+        // Initialize git repository
+        _ = try await executeGit(
+            arguments: ["init", "--initial-branch=\(initialBranch)"],
+            at: path
+        )
+    }
+
     // MARK: - Private Helpers
 
     private func executeGit(arguments: [String], at workingDirectory: String?) async throws -> String {

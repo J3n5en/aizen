@@ -80,7 +80,11 @@ struct ContentView: View {
             if let workspace = selectedWorkspace ?? workspaces.first {
                 RepositoryAddSheet(
                     workspace: workspace,
-                    repositoryManager: repositoryManager
+                    repositoryManager: repositoryManager,
+                    onRepositoryAdded: { repository in
+                        selectedWorktree = nil
+                        selectedRepository = repository
+                    }
                 )
             }
         }
@@ -108,6 +112,10 @@ struct ContentView: View {
             if let repo = newValue, repo.isDeleted || repo.isFault {
                 selectedRepository = nil
                 selectedWorktree = nil
+            } else if let repo = newValue {
+                // Auto-select primary worktree when repository changes
+                let worktrees = (repo.worktrees as? Set<Worktree>) ?? []
+                selectedWorktree = worktrees.first(where: { $0.isPrimary })
             }
         }
     }
