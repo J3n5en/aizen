@@ -107,6 +107,10 @@ extension Ghostty {
                 font-family = \(terminalFontName)
                 font-size = \(Int(terminalFontSize))
                 window-inherit-font-size = false
+                window-padding-balance = true
+                window-padding-x = 0
+                window-padding-y = 0
+                window-padding-color = extend-always
 
                 # Enable shell integration (resources dir auto-detected from app bundle)
                 shell-integration = \(shellName)
@@ -224,6 +228,10 @@ extension Ghostty {
                 font-family = \(terminalFontName)
                 font-size = \(Int(terminalFontSize))
                 window-inherit-font-size = false
+                window-padding-balance = true
+                window-padding-x = 0
+                window-padding-y = 0
+                window-padding-color = extend-always
 
                 # Enable shell integration (resources dir auto-detected from app bundle)
                 shell-integration = \(shellName)

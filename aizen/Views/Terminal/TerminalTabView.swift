@@ -67,6 +67,7 @@ struct TerminalTabView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
                 if selectedSessionId == nil {
                     selectedSessionId = sessions.first?.id
@@ -166,7 +167,6 @@ struct SplitTerminalView: View {
 
     var body: some View {
         renderNode(layout)
-            .padding(.top, 1)
             .onAppear {
                 saveLayout()
             }
@@ -347,16 +347,20 @@ struct TerminalPaneView: View {
     @State private var terminalView: GhosttyTerminalView?  // Store reference to resign directly
 
     var body: some View {
-        TerminalViewWrapper(
-            worktree: worktree,
-            session: session,
-            paneId: paneId,
-            sessionManager: sessionManager,
-            onProcessExit: onProcessExit,
-            shouldFocus: shouldFocus,  // Pass value directly, not binding
-            isFocused: isFocused,      // Pass focused state to manage resignation
-            focusVersion: focusVersion // Version counter to force updateNSView
-        )
+        GeometryReader { geo in
+            TerminalViewWrapper(
+                worktree: worktree,
+                session: session,
+                paneId: paneId,
+                sessionManager: sessionManager,
+                onProcessExit: onProcessExit,
+                shouldFocus: shouldFocus,  // Pass value directly, not binding
+                isFocused: isFocused,      // Pass focused state to manage resignation
+                focusVersion: focusVersion, // Version counter to force updateNSView
+                size: geo.size
+            )
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
         .opacity(isFocused ? 1.0 : 0.6)
         .onTapGesture {
             onFocus()
@@ -451,6 +455,7 @@ struct TerminalViewWrapper: NSViewRepresentable {
     let shouldFocus: Bool  // Pass value directly to trigger updateNSView
     let isFocused: Bool    // Track if this pane should have focus
     let focusVersion: Int  // Version counter - forces updateNSView when changed
+    let size: CGSize       // Frame size from GeometryReader
 
     @EnvironmentObject var ghosttyApp: Ghostty.App
 
@@ -527,6 +532,11 @@ struct TerminalViewWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        // Always update frame size to match allocated space
+        // This matches Ghostty's SurfaceRepresentable approach
+        nsView.frame.size = size
+
+        // Handle focus changes
         if shouldFocus {
             guard let window = nsView.window else { return }
             window.makeFirstResponder(nsView)

@@ -308,13 +308,45 @@ class GhosttyTerminalView: NSView {
         )
     }
 
+    // Track last size sent to Ghostty to avoid redundant updates
+    private var lastSurfaceSize: CGSize = .zero
+
+    // Override safe area insets to use full available space, including rounded corners
+    // This matches Ghostty's SurfaceScrollView implementation
+    override var safeAreaInsets: NSEdgeInsets {
+        return NSEdgeInsetsZero
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
 
-        guard let surface = surface?.unsafeCValue else { return }
+        // Force layout to be called to fix up subviews
+        // This matches Ghostty's SurfaceScrollView.setFrameSize
+        needsLayout = true
+    }
 
-        // Update Ghostty with new framebuffer size
-        let scaledSize = convertToBacking(NSRect(origin: .zero, size: newSize).size)
+    override func layout() {
+        super.layout()
+
+        // Update Metal layer frame to match view bounds
+        if let metalLayer = layer as? CAMetalLayer {
+            metalLayer.frame = bounds
+        }
+
+        // Update Ghostty surface size during layout pass
+        // Only update if backing pixel size actually changed to prevent flicker
+        guard let surface = surface?.unsafeCValue else { return }
+        guard bounds.width > 0 && bounds.height > 0 else { return }
+
+        let scaledSize = convertToBacking(bounds.size)
+
+        // Only update if size changed by at least 1 pixel
+        let widthChanged = abs(scaledSize.width - lastSurfaceSize.width) >= 1.0
+        let heightChanged = abs(scaledSize.height - lastSurfaceSize.height) >= 1.0
+
+        guard widthChanged || heightChanged else { return }
+
+        lastSurfaceSize = scaledSize
         ghostty_surface_set_size(
             surface,
             UInt32(scaledSize.width),

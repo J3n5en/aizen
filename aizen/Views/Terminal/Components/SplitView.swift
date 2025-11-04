@@ -69,14 +69,20 @@ struct SplitView<L: View, R: View>: View {
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
         return DragGesture()
             .onChanged { gesture in
-                switch (direction) {
-                case .horizontal:
-                    let new = min(max(minSize, gesture.location.x), size.width - minSize)
-                    split = new / size.width
+                // Disable animations during drag to prevent flicker
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
 
-                case .vertical:
-                    let new = min(max(minSize, gesture.location.y), size.height - minSize)
-                    split = new / size.height
+                withTransaction(transaction) {
+                    switch (direction) {
+                    case .horizontal:
+                        let new = min(max(minSize, gesture.location.x), size.width - minSize)
+                        split = new / size.width
+
+                    case .vertical:
+                        let new = min(max(minSize, gesture.location.y), size.height - minSize)
+                        split = new / size.height
+                    }
                 }
             }
     }
