@@ -1,0 +1,417 @@
+//
+//  ACPClient.swift
+//  aizen
+//
+//  Actor-based ACP agent subprocess manager
+//
+
+import Foundation
+
+// ACPClientDelegate is defined in ACPRequestRouter
+typealias ACPClientDelegate = ACPRequestDelegate
+
+actor ACPClient {
+    // MARK: - Properties
+
+    private let processManager: ACPProcessManager
+    private let requestRouter: ACPRequestRouter
+    private let errorHandler: ACPErrorHandler
+
+    private var pendingRequests: [RequestId: CheckedContinuation<JSONRPCResponse, Error>] = [:]
+    private var nextRequestId: Int = 1
+
+    private let notificationContinuation: AsyncStream<JSONRPCNotification>.Continuation
+    private let notificationStream: AsyncStream<JSONRPCNotification>
+
+    private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
+
+    weak var delegate: ACPClientDelegate?
+
+    // MARK: - Initialization
+
+    init() {
+        // Set up JSON decoder/encoder
+        // Note: We manually handle camelCase/snake_case in CodingKeys where needed
+        decoder = JSONDecoder()
+        encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+
+        // Create notification stream
+        var continuation: AsyncStream<JSONRPCNotification>.Continuation!
+        notificationStream = AsyncStream { cont in
+            continuation = cont
+        }
+        notificationContinuation = continuation
+
+        // Initialize components
+        processManager = ACPProcessManager(encoder: encoder, decoder: decoder)
+        requestRouter = ACPRequestRouter(encoder: encoder, decoder: decoder)
+        errorHandler = ACPErrorHandler(encoder: encoder)
+
+        // Set up callbacks
+        Task {
+            await processManager.setDataReceivedCallback { [weak self] data in
+                await self?.handleMessage(data: data)
+            }
+            await processManager.setTerminationCallback { [weak self] exitCode in
+                await self?.handleTermination(exitCode: exitCode)
+            }
+        }
+    }
+
+    // MARK: - Public API
+
+    var notifications: AsyncStream<JSONRPCNotification> {
+        notificationStream
+    }
+
+    func setDelegate(_ delegate: ACPClientDelegate?) {
+        self.delegate = delegate
+        Task {
+            await requestRouter.setDelegate(delegate)
+        }
+    }
+
+    func launch(agentPath: String, arguments: [String] = []) async throws {
+        try await processManager.launch(agentPath: agentPath, arguments: arguments)
+    }
+
+    func initialize(
+        protocolVersion: Int = 1,
+        capabilities: ClientCapabilities
+    ) async throws -> InitializeResponse {
+        let request = InitializeRequest(
+            protocolVersion: protocolVersion,
+            clientCapabilities: capabilities
+        )
+
+        let response = try await sendRequest(method: "initialize", params: request)
+
+        guard let result = response.result else {
+            if let error = response.error {
+                throw ACPClientError.agentError(error)
+            }
+            throw ACPClientError.invalidResponse
+        }
+
+        let data = try encoder.encode(result)
+        return try decoder.decode(InitializeResponse.self, from: data)
+    }
+
+    func newSession(
+        workingDirectory: String,
+        mcpServers: [MCPServerConfig] = []
+    ) async throws -> NewSessionResponse {
+        let request = NewSessionRequest(
+            cwd: workingDirectory,
+            mcpServers: mcpServers
+        )
+
+        let response = try await sendRequest(method: "session/new", params: request)
+
+        guard let result = response.result else {
+            if let error = response.error {
+                throw ACPClientError.agentError(error)
+            }
+            throw ACPClientError.invalidResponse
+        }
+
+        let data = try encoder.encode(result)
+        return try decoder.decode(NewSessionResponse.self, from: data)
+    }
+
+    func sendPrompt(
+        sessionId: SessionId,
+        content: [ContentBlock]
+    ) async throws -> SessionPromptResponse {
+        let request = SessionPromptRequest(
+            sessionId: sessionId,
+            prompt: content
+        )
+
+        let response = try await sendRequest(method: "session/prompt", params: request)
+
+        if let error = response.error {
+            throw ACPClientError.agentError(error)
+        }
+
+        guard let result = response.result else {
+            throw ACPClientError.invalidResponse
+        }
+
+        let data = try encoder.encode(result)
+        return try decoder.decode(SessionPromptResponse.self, from: data)
+    }
+
+    func authenticate(
+        authMethodId: String,
+        credentials: [String: String]? = nil
+    ) async throws -> AuthenticateResponse {
+        let request = AuthenticateRequest(
+            methodId: authMethodId,
+            credentials: credentials
+        )
+
+        let response = try await sendRequest(method: "authenticate", params: request)
+
+        // Check for errors first
+        if let error = response.error {
+            throw ACPClientError.agentError(error)
+        }
+
+        // For authenticate, null or empty object result means success
+        if response.result == nil || (response.result?.value is NSNull) {
+            return AuthenticateResponse(success: true, error: nil)
+        }
+
+        // Check for empty object (Codex returns {})
+        if let dict = response.result?.value as? [String: Any], dict.isEmpty {
+            return AuthenticateResponse(success: true, error: nil)
+        }
+
+        // Otherwise try to decode the result
+        guard let result = response.result else {
+            throw ACPClientError.invalidResponse
+        }
+
+        do {
+            let data = try encoder.encode(result)
+            return try decoder.decode(AuthenticateResponse.self, from: data)
+        } catch {
+            // If decoding fails but there's no error, treat as success
+            return AuthenticateResponse(success: true, error: nil)
+        }
+    }
+
+    func setMode(
+        sessionId: SessionId,
+        modeId: String
+    ) async throws -> SetModeResponse {
+        let request = SetModeRequest(
+            sessionId: sessionId,
+            modeId: modeId
+        )
+
+        let response = try await sendRequest(method: "session/set_mode", params: request)
+
+        // Check for errors
+        if let error = response.error {
+            throw ACPClientError.agentError(error)
+        }
+
+        // Empty object or null = success
+        return SetModeResponse(success: true)
+    }
+
+    func setModel(
+        sessionId: SessionId,
+        modelId: String
+    ) async throws -> SetModelResponse {
+        let request = SetModelRequest(
+            sessionId: sessionId,
+            modelId: modelId
+        )
+
+        let response = try await sendRequest(method: "session/set_model", params: request)
+
+        // Check for errors
+        if let error = response.error {
+            throw ACPClientError.agentError(error)
+        }
+
+        // Empty object or null = success
+        return SetModelResponse(success: true)
+    }
+
+    func cancelSession(sessionId: SessionId) async throws {
+        let request = CancelSessionRequest(sessionId: sessionId)
+
+        let response = try await sendRequest(method: "session/cancel", params: request)
+
+        if let error = response.error {
+            throw ACPClientError.agentError(error)
+        }
+    }
+
+    func loadSession(
+        sessionId: SessionId,
+        cwd: String? = nil,
+        mcpServers: [MCPServerConfig]? = nil
+    ) async throws -> LoadSessionResponse {
+        let request = LoadSessionRequest(
+            sessionId: sessionId,
+            cwd: cwd,
+            mcpServers: mcpServers
+        )
+
+        let response = try await sendRequest(method: "session/load", params: request)
+
+        guard let result = response.result else {
+            if let error = response.error {
+                throw ACPClientError.agentError(error)
+            }
+            throw ACPClientError.invalidResponse
+        }
+
+        let data = try encoder.encode(result)
+        return try decoder.decode(LoadSessionResponse.self, from: data)
+    }
+
+    func sendRequest<T: Encodable>(
+        method: String,
+        params: T
+    ) async throws -> JSONRPCResponse {
+        guard await processManager.isRunning() else {
+            throw ACPClientError.processNotRunning
+        }
+
+        let requestId = RequestId.number(nextRequestId)
+        nextRequestId += 1
+
+        let paramsData = try encoder.encode(params)
+        let paramsValue = try decoder.decode(AnyCodable.self, from: paramsData)
+
+        let request = JSONRPCRequest(
+            id: requestId,
+            method: method,
+            params: paramsValue
+        )
+
+        return try await withCheckedThrowingContinuation { continuation in
+            Task {
+                await self.registerRequest(id: requestId, continuation: continuation)
+
+                do {
+                    try await processManager.writeMessage(request)
+                } catch {
+                    await self.failRequest(id: requestId, error: error)
+                }
+            }
+        }
+    }
+
+    func sendCancelNotification(sessionId: SessionId) async throws {
+        guard await processManager.isRunning() else {
+            throw ACPClientError.processNotRunning
+        }
+
+        struct CancelParams: Encodable {
+            let sessionId: SessionId
+        }
+
+        let params = CancelParams(sessionId: sessionId)
+        let paramsData = try encoder.encode(params)
+        let paramsValue = try decoder.decode(AnyCodable.self, from: paramsData)
+
+        let notification = JSONRPCNotification(
+            method: "session/cancel",
+            params: paramsValue
+        )
+
+        try await processManager.writeMessage(notification)
+    }
+
+    func terminate() async {
+        await processManager.terminate()
+
+        // Fail all pending requests
+        for (id, continuation) in pendingRequests {
+            continuation.resume(throwing: ACPClientError.processNotRunning)
+        }
+        pendingRequests.removeAll()
+
+        notificationContinuation.finish()
+    }
+
+    // MARK: - Private Methods
+
+    private func handleMessage(data: Data) async {
+        do {
+            let message = try decoder.decode(ACPMessage.self, from: data)
+
+            switch message {
+            case .response(let response):
+                await handleResponse(response)
+
+            case .notification(let notification):
+                notificationContinuation.yield(notification)
+
+            case .request(let request):
+                await handleIncomingRequest(request)
+            }
+        } catch {
+            print("ACPClient: Failed to decode message: \(error)")
+        }
+    }
+
+    private func handleResponse(_ response: JSONRPCResponse) async {
+        guard let continuation = pendingRequests.removeValue(forKey: response.id) else {
+            return
+        }
+
+        continuation.resume(returning: response)
+    }
+
+    private func handleIncomingRequest(_ request: JSONRPCRequest) async {
+        do {
+            let response = try await requestRouter.routeRequest(request)
+            try await sendSuccessResponse(requestId: request.id, result: response)
+        } catch {
+            print("ACPClient: Error handling request \(request.method): \(error)")
+
+            if let acpError = error as? ACPClientError, case .invalidResponse = acpError {
+                try? await sendErrorResponse(
+                    requestId: request.id,
+                    code: -32601,
+                    message: "Method not found: \(request.method)"
+                )
+            } else {
+                try? await sendErrorResponse(
+                    requestId: request.id,
+                    code: -32603,
+                    message: "Internal error: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func sendSuccessResponse(requestId: RequestId, result: AnyCodable) async throws {
+        let response = JSONRPCResponse(id: requestId, result: result, error: nil)
+        try await processManager.writeMessage(response)
+    }
+
+    private func sendErrorResponse(requestId: RequestId, code: Int, message: String) async throws {
+        let errorResponse = try await errorHandler.createErrorResponse(
+            requestId: requestId,
+            code: code,
+            message: message
+        )
+        try await processManager.writeMessage(errorResponse)
+    }
+
+    private func handleTermination(exitCode: Int32) async {
+        print("Agent process terminated with code: \(exitCode)")
+
+        // Fail all pending requests
+        for (_, continuation) in pendingRequests {
+            continuation.resume(throwing: ACPClientError.processFailed(exitCode))
+        }
+        pendingRequests.removeAll()
+
+        notificationContinuation.finish()
+    }
+
+    private func registerRequest(
+        id: RequestId,
+        continuation: CheckedContinuation<JSONRPCResponse, Error>
+    ) async {
+        pendingRequests[id] = continuation
+    }
+
+    private func failRequest(id: RequestId, error: Error) async {
+        if let continuation = pendingRequests.removeValue(forKey: id) {
+            continuation.resume(throwing: error)
+        }
+    }
+}

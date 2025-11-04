@@ -30,8 +30,14 @@ enum GitError: LocalizedError {
 
 actor GitCommandExecutor {
 
+    private let fileManager: FileManager
+
     // Cache shell environment (load once) - actor-isolated
     private var cachedShellEnvironment: [String: String]?
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
 
     private func getShellEnvironment() -> [String: String] {
         if let cached = cachedShellEnvironment {
@@ -92,14 +98,14 @@ actor GitCommandExecutor {
     func isGitRepository(at path: String) -> Bool {
         let gitPath = (path as NSString).appendingPathComponent(".git")
         var isDirectory: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: gitPath, isDirectory: &isDirectory)
+        let exists = fileManager.fileExists(atPath: gitPath, isDirectory: &isDirectory)
 
         if exists && isDirectory.boolValue {
             return true
         }
 
         // Check if it's a worktree (has .git file pointing to main repo)
-        if FileManager.default.fileExists(atPath: gitPath) {
+        if fileManager.fileExists(atPath: gitPath) {
             return true
         }
 

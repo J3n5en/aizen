@@ -20,6 +20,7 @@ class RepositoryManager: ObservableObject {
     private let branchService: GitBranchService
     private let worktreeService: GitWorktreeService
     private let remoteService: GitRemoteService
+    private let fileSystemManager: RepositoryFileSystemManager
 
     nonisolated var objectWillChange: ObservableObjectPublisher {
         ObservableObjectPublisher()
@@ -34,6 +35,7 @@ class RepositoryManager: ObservableObject {
         self.branchService = GitBranchService(executor: executor)
         self.worktreeService = GitWorktreeService(executor: executor)
         self.remoteService = GitRemoteService(executor: executor)
+        self.fileSystemManager = RepositoryFileSystemManager()
     }
 
     // MARK: - Workspace Operations
@@ -265,36 +267,14 @@ class RepositoryManager: ObservableObject {
     // MARK: - File System Operations
 
     func openInFinder(_ path: String) {
-        let url = URL(fileURLWithPath: path)
-        NSWorkspace.shared.open(url)
+        fileSystemManager.openInFinder(path)
     }
 
     func openInTerminal(_ path: String) {
-        let script = """
-        tell application "Terminal"
-            do script "cd '\(path)'"
-            activate
-        end tell
-        """
-
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
+        fileSystemManager.openInTerminal(path)
     }
 
     func openInEditor(_ path: String) {
-        let editor = UserDefaults.standard.string(forKey: "defaultEditor") ?? "code"
-
-        let task = Process()
-        task.launchPath = "/usr/bin/env"
-        task.arguments = [editor, path]
-
-        do {
-            try task.run()
-        } catch {
-            // Fallback to Finder if editor command fails
-            openInFinder(path)
-        }
+        fileSystemManager.openInEditor(path)
     }
 }

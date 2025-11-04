@@ -7,19 +7,19 @@
 
 import Foundation
 
-actor GitRemoteService {
-    private let executor: GitCommandExecutor
+actor GitRemoteService: GitDomainService {
+    let executor: GitCommandExecutor
 
     init(executor: GitCommandExecutor) {
         self.executor = executor
     }
 
     func fetch(at path: String) async throws {
-        _ = try await executor.executeGit(arguments: ["fetch"], at: path)
+        try await executeVoid(["fetch"], at: path)
     }
 
     func pull(at path: String) async throws {
-        _ = try await executor.executeGit(arguments: ["pull"], at: path)
+        try await executeVoid(["pull"], at: path)
     }
 
     func push(at path: String, setUpstream: Bool = false, force: Bool = false) async throws {
@@ -35,11 +35,12 @@ actor GitRemoteService {
             arguments.append("--force")
         }
 
-        _ = try await executor.executeGit(arguments: arguments, at: path)
+        try await executeVoid(arguments, at: path)
     }
 
     func clone(url: String, to path: String) async throws {
-        _ = try await executor.executeGit(arguments: ["clone", url, path], at: nil)
+        // Clone doesn't need a working directory path since it creates one
+        _ = try await executor.executeGit(arguments: ["clone", url, path], at: FileManager.default.currentDirectoryPath)
     }
 
     func initRepository(at path: String, initialBranch: String = "main") async throws {
@@ -51,10 +52,7 @@ actor GitRemoteService {
         )
 
         // Initialize git repository
-        _ = try await executor.executeGit(
-            arguments: ["init", "--initial-branch=\(initialBranch)"],
-            at: path
-        )
+        try await executeVoid(["init", "--initial-branch=\(initialBranch)"], at: path)
     }
 
     func getRepositoryName(at path: String) async throws -> String {

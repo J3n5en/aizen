@@ -8,7 +8,7 @@ class AgentRouter: ObservableObject {
     private let defaultAgentKey = "defaultACPAgent"
 
     // Cache for fast agent lookup by ID or name
-    private var enabledAgentLookup: [String: AgentRegistry.AgentMetadata] = [:]
+    private var enabledAgentLookup: [String: AgentMetadata] = [:]
 
     var defaultAgent: String {
         get {

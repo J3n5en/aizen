@@ -21,8 +21,8 @@ struct CustomAgentFormView: View {
     @State private var isValidatingPath = false
     @State private var pathValidationResult: PathValidation?
 
-    let existingMetadata: AgentRegistry.AgentMetadata?
-    let onSave: (AgentRegistry.AgentMetadata) -> Void
+    let existingMetadata: AgentMetadata?
+    let onSave: (AgentMetadata) -> Void
     let onCancel: () -> Void
 
     enum PathValidation {
@@ -31,8 +31,8 @@ struct CustomAgentFormView: View {
     }
 
     init(
-        existingMetadata: AgentRegistry.AgentMetadata? = nil,
-        onSave: @escaping (AgentRegistry.AgentMetadata) -> Void,
+        existingMetadata: AgentMetadata? = nil,
+        onSave: @escaping (AgentMetadata) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.existingMetadata = existingMetadata
@@ -261,7 +261,7 @@ struct CustomAgentFormView: View {
         do {
             let tempClient = ACPClient()
 
-            try tempClient.launch(
+            try await tempClient.launch(
                 agentPath: trimmedPath,
                 arguments: launchArgs
             )
@@ -317,7 +317,7 @@ struct CustomAgentFormView: View {
             .filter { !$0.isEmpty }
 
         // Use SF Symbol for icon
-        let iconType = AgentRegistry.IconType.sfSymbol(selectedSFSymbol)
+        let iconType = AgentIconType.sfSymbol(selectedSFSymbol)
 
         if let existing = existingMetadata {
             // Update existing

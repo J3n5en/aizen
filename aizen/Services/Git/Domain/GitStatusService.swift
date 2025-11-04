@@ -17,8 +17,8 @@ struct DetailedGitStatus {
     let behindBy: Int
 }
 
-actor GitStatusService {
-    private let executor: GitCommandExecutor
+actor GitStatusService: GitDomainService {
+    let executor: GitCommandExecutor
 
     init(executor: GitCommandExecutor) {
         self.executor = executor
@@ -137,8 +137,7 @@ actor GitStatusService {
     }
 
     func getCurrentBranch(at path: String) async throws -> String {
-        let output = try await executor.executeGit(arguments: ["branch", "--show-current"], at: path)
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await execute(["branch", "--show-current"], at: path)
     }
 
     func getBranchStatus(at path: String) async throws -> (ahead: Int, behind: Int) {
@@ -154,7 +153,7 @@ actor GitStatusService {
     }
 
     func hasUnsavedChanges(at worktreePath: String) async throws -> Bool {
-        let output = try await executor.executeGit(arguments: ["status", "--porcelain"], at: worktreePath)
-        return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let output = try await execute(["status", "--porcelain"], at: worktreePath)
+        return !output.isEmpty
     }
 }

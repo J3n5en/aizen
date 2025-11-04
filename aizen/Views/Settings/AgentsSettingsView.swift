@@ -10,7 +10,7 @@ import SwiftUI
 struct AgentsSettingsView: View {
     @Binding var defaultACPAgent: String
 
-    @State private var agents: [AgentRegistry.AgentMetadata] = []
+    @State private var agents: [AgentMetadata] = []
     @State private var showingAddCustomAgent = false
 
     var body: some View {

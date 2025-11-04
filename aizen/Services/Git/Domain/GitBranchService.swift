@@ -14,8 +14,8 @@ struct BranchInfo: Hashable, Identifiable {
     let isRemote: Bool
 }
 
-actor GitBranchService {
-    private let executor: GitCommandExecutor
+actor GitBranchService: GitDomainService {
+    let executor: GitCommandExecutor
 
     init(executor: GitCommandExecutor) {
         self.executor = executor
@@ -32,7 +32,7 @@ actor GitBranchService {
     }
 
     func checkoutBranch(at path: String, branch: String) async throws {
-        _ = try await executor.executeGit(arguments: ["checkout", branch], at: path)
+        try await executeVoid(["checkout", branch], at: path)
     }
 
     func createBranch(at path: String, name: String, from baseBranch: String? = nil) async throws {
@@ -40,12 +40,12 @@ actor GitBranchService {
         if let baseBranch = baseBranch {
             arguments.append(baseBranch)
         }
-        _ = try await executor.executeGit(arguments: arguments, at: path)
+        try await executeVoid(arguments, at: path)
     }
 
     func deleteBranch(at path: String, name: String, force: Bool = false) async throws {
         let flag = force ? "-D" : "-d"
-        _ = try await executor.executeGit(arguments: ["branch", flag, name], at: path)
+        try await executeVoid(["branch", flag, name], at: path)
     }
 
     // MARK: - Private Helpers

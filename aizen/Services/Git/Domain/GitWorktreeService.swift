@@ -14,8 +14,8 @@ struct WorktreeInfo {
     let isPrimary: Bool
 }
 
-actor GitWorktreeService {
-    private let executor: GitCommandExecutor
+actor GitWorktreeService: GitDomainService {
+    let executor: GitCommandExecutor
 
     init(executor: GitCommandExecutor) {
         self.executor = executor
@@ -44,7 +44,7 @@ actor GitWorktreeService {
             arguments.append(branch)
         }
 
-        _ = try await executor.executeGit(arguments: arguments, at: repoPath)
+        try await executeVoid(arguments, at: repoPath)
     }
 
     func removeWorktree(at worktreePath: String, repoPath: String, force: Bool = false) async throws {
@@ -56,7 +56,7 @@ actor GitWorktreeService {
 
         arguments.append(worktreePath)
 
-        _ = try await executor.executeGit(arguments: arguments, at: repoPath)
+        try await executeVoid(arguments, at: repoPath)
     }
 
     // MARK: - Private Helpers

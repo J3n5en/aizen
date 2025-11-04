@@ -28,8 +28,6 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     @Published var availableCommands: [AvailableCommand] = []
     @Published var currentMode: SessionMode?
     @Published var agentPlan: Plan?
-    @Published var permissionRequest: RequestPermissionRequest?
-    @Published var showingPermissionAlert: Bool = false
     @Published var availableModes: [ModeInfo] = []
     @Published var availableModels: [ModelInfo] = []
     @Published var currentModeId: String?
@@ -45,9 +43,11 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     private var acpClient: ACPClient?
     private var cancellables = Set<AnyCancellable>()
     private var process: Process?
-    private var terminals: [String: Process] = [:]
-    private var terminalOutputs: [String: String] = [:]
-    private var permissionContinuation: CheckedContinuation<RequestPermissionResponse, Never>?
+
+    // Delegates
+    private let fileSystemDelegate = AgentFileSystemDelegate()
+    private let terminalDelegate = AgentTerminalDelegate()
+    let permissionHandler = AgentPermissionHandler()
 
     // MARK: - Initialization
 
@@ -247,11 +247,6 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         // Send to agent - notifications will arrive asynchronously
         // Tool calls will mark messages complete, or if no tools, the final chunk completes it
         let promptResponse = try await client.sendPrompt(sessionId: sessionId, content: contentBlocks)
-
-//        // Ensure the last message is marked complete in case there were no tool calls
-//        if let lastMessage = messages.last, lastMessage.role == .agent, !lastMessage.isComplete {
-//            markLastMessageComplete()
-//        }
     }
 
     /// Cancel the current prompt turn
@@ -372,6 +367,10 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         if let client = acpClient {
             await client.terminate()
         }
+
+        // Clean up delegates
+        await terminalDelegate.cleanup()
+        await permissionHandler.cancelPendingRequest()
 
         acpClient = nil
         cancellables.removeAll()
@@ -599,107 +598,34 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     // MARK: - ACPClientDelegate Methods
 
     func handleFileReadRequest(_ path: String, startLine: Int?, endLine: Int?) async throws -> ReadTextFileResponse {
-        let url = URL(fileURLWithPath: path)
-        let content = try String(contentsOf: url, encoding: .utf8)
-        let lines = content.components(separatedBy: .newlines)
-
-        let filteredContent: String
-        if let start = startLine, let end = endLine {
-            let startIdx = max(0, start - 1)
-            let endIdx = min(lines.count, end)
-            filteredContent = lines[startIdx..<endIdx].joined(separator: "\n")
-        } else {
-            filteredContent = content
-        }
-
-        return ReadTextFileResponse(content: filteredContent, totalLines: lines.count)
+        return try await fileSystemDelegate.handleFileReadRequest(path, startLine: startLine, endLine: endLine)
     }
 
     func handleFileWriteRequest(_ path: String, content: String) async throws -> WriteTextFileResponse {
-        let url = URL(fileURLWithPath: path)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        return WriteTextFileResponse(success: true)
+        return try await fileSystemDelegate.handleFileWriteRequest(path, content: content)
     }
 
     func handleTerminalCreate(command: String, args: [String]?, cwd: String?, env: [String: String]?, outputLimit: Int?) async throws -> CreateTerminalResponse {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: command)
-        process.arguments = args ?? []
-
-        if let cwd = cwd {
-            process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        }
-
-        if let env = env {
-            process.environment = env
-        }
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        let terminalIdValue = UUID().uuidString
-        let terminalId = TerminalId(terminalIdValue)
-
-        terminals[terminalIdValue] = process
-        terminalOutputs[terminalIdValue] = ""
-
-        // Capture output asynchronously
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if !data.isEmpty, let output = String(data: data, encoding: .utf8) {
-                Task { @MainActor in
-                    self?.terminalOutputs[terminalIdValue, default: ""] += output
-                }
-            }
-        }
-
-        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if !data.isEmpty, let output = String(data: data, encoding: .utf8) {
-                Task { @MainActor in
-                    self?.terminalOutputs[terminalIdValue, default: ""] += output
-                }
-            }
-        }
-
-        try process.run()
-        return CreateTerminalResponse(terminalId: terminalId)
+        return try await terminalDelegate.handleTerminalCreate(
+            command: command,
+            args: args,
+            cwd: cwd,
+            env: env,
+            outputLimit: outputLimit
+        )
     }
 
     func handleTerminalOutput(terminalId: TerminalId) async throws -> TerminalOutputResponse {
-        guard let process = terminals[terminalId.value] else {
-            throw NSError(domain: "AgentSession", code: -1, userInfo: [NSLocalizedDescriptionKey: "Terminal not found"])
-        }
-
-        let output = terminalOutputs[terminalId.value] ?? ""
-        let exitCode = process.isRunning ? nil : Int(process.terminationStatus)
-
-        // Clear the accumulated output after reading
-        terminalOutputs[terminalId.value] = ""
-
-        return TerminalOutputResponse(output: output, exitCode: exitCode)
+        return try await terminalDelegate.handleTerminalOutput(terminalId: terminalId)
     }
 
     func handlePermissionRequest(request: RequestPermissionRequest) async throws -> RequestPermissionResponse {
-        return await withCheckedContinuation { continuation in
-            self.permissionRequest = request
-            self.showingPermissionAlert = true
-            self.permissionContinuation = continuation
-        }
+        return await permissionHandler.handlePermissionRequest(request: request)
     }
 
+    /// Respond to a permission request - delegates to permission handler
     func respondToPermission(optionId: String) {
-        showingPermissionAlert = false
-        permissionRequest = nil
-
-        if let continuation = permissionContinuation {
-            let outcome = PermissionOutcome(optionId: optionId)
-            let response = RequestPermissionResponse(outcome: outcome)
-            continuation.resume(returning: response)
-            permissionContinuation = nil
-        }
+        permissionHandler.respondToPermission(optionId: optionId)
     }
 
     /// Retry starting the session after agent setup is completed

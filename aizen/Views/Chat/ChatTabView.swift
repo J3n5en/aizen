@@ -15,7 +15,7 @@ struct ChatTabView: View {
 
     private let sessionManager = ChatSessionManager.shared
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen", category: "ChatTabView")
-    @State private var enabledAgents: [AgentRegistry.AgentMetadata] = []
+    @State private var enabledAgents: [AgentMetadata] = []
 
     var sessions: [ChatSession] {
         let sessions = (worktree.chatSessions as? Set<ChatSession>) ?? []
@@ -94,7 +94,7 @@ struct ChatTabView: View {
     }
 
     @ViewBuilder
-    private func agentButton(for agentMetadata: AgentRegistry.AgentMetadata) -> some View {
+    private func agentButton(for agentMetadata: AgentMetadata) -> some View {
         Button {
             createNewSession(withAgent: agentMetadata.id)
         } label: {

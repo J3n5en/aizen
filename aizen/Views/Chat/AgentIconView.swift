@@ -9,11 +9,11 @@ import SwiftUI
 
 /// Shared agent icon view builder
 struct AgentIconView: View {
-    let iconType: AgentRegistry.IconType?
+    let iconType: AgentIconType?
     let agentName: String?
     let size: CGFloat
 
-    init(iconType: AgentRegistry.IconType, size: CGFloat) {
+    init(iconType: AgentIconType, size: CGFloat) {
         self.iconType = iconType
         self.agentName = nil
         self.size = size
@@ -25,7 +25,7 @@ struct AgentIconView: View {
         self.size = size
     }
 
-    init(metadata: AgentRegistry.AgentMetadata, size: CGFloat) {
+    init(metadata: AgentMetadata, size: CGFloat) {
         self.iconType = metadata.iconType
         self.agentName = nil
         self.size = size
@@ -42,7 +42,7 @@ struct AgentIconView: View {
     }
 
     @ViewBuilder
-    private func iconForType(_ type: AgentRegistry.IconType) -> some View {
+    private func iconForType(_ type: AgentIconType) -> some View {
         switch type {
         case .builtin(let name):
             iconForBuiltinName(name)

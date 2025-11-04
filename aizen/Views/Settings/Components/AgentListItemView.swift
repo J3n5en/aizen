@@ -9,7 +9,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct AgentListItemView: View {
-    @Binding var metadata: AgentRegistry.AgentMetadata
+    @Binding var metadata: AgentMetadata
     @State private var isInstalling = false
     @State private var isUpdating = false
     @State private var isTesting = false
@@ -323,7 +323,7 @@ struct AgentListItemView: View {
                 let tempClient = ACPClient()
 
                 // Launch the process with proper arguments
-                try tempClient.launch(
+                try await tempClient.launch(
                     agentPath: path,
                     arguments: metadata.launchArgs
                 )
