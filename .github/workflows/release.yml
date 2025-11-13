@@ -104,8 +104,12 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         if: ${{ env.APPLE_CERTIFICATE != '' }}
         run: |
+          echo "Finding Developer ID certificate..."
+          CERT_IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | grep -o '"[^"]*"' | tr -d '"')
+          echo "Using certificate: $CERT_IDENTITY"
+
           echo "Signing app bundle..."
-          codesign --force --deep --sign "Developer ID Application" \
+          codesign --force --deep --sign "$CERT_IDENTITY" \
             --options runtime \
             --entitlements aizen/aizen.entitlements \
             build/dmg/aizen.app
@@ -134,8 +138,12 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         if: ${{ env.APPLE_CERTIFICATE != '' }}
         run: |
+          echo "Finding Developer ID certificate..."
+          CERT_IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | grep -o '"[^"]*"' | tr -d '"')
+          echo "Using certificate: $CERT_IDENTITY"
+
           echo "Signing DMG..."
-          codesign --force --sign "Developer ID Application" \
+          codesign --force --sign "$CERT_IDENTITY" \
             "build/Aizen-${{ github.event.inputs.version }}.dmg"
 
       # Conditional notarization
