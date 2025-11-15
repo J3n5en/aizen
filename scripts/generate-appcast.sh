@@ -63,7 +63,7 @@ else
         exit 1
     fi
 
-    SIGNATURE=$("$SIGN_UPDATE" "$DMG_PATH" "$PRIVATE_KEY" 2>/dev/null || echo "")
+    SIGNATURE=$("$SIGN_UPDATE" --ed-key-file "$PRIVATE_KEY" -p "$DMG_PATH" 2>/dev/null || echo "")
 
     if [ -z "$SIGNATURE" ]; then
         echo "Error: Failed to generate EdDSA signature for DMG"
