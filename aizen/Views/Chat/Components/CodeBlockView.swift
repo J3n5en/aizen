@@ -6,7 +6,8 @@
 //
 
 import SwiftUI
-import HighlightSwift
+import CodeEditSourceEditor
+import CodeEditLanguages
 
 struct CodeBlockView: View {
     let code: String
@@ -14,8 +15,9 @@ struct CodeBlockView: View {
 
     @State private var showCopyConfirmation = false
     @State private var highlightedText: AttributedString?
+    @AppStorage("editorTheme") private var editorTheme: String = "Catppuccin Mocha"
 
-    private let highlight = Highlight()
+    private let highlighter = TreeSitterHighlighter()
 
     var body: some View {
       
@@ -87,22 +89,50 @@ struct CodeBlockView: View {
 
     private func performHighlight() async {
         do {
-            let attributed: AttributedString
-            if let lang = language,
-               !lang.isEmpty,
-               let highlightLang = LanguageDetection.highlightLanguageFromFence(lang) {
-                attributed = try await highlight.attributedText(
-                    code,
-                    language: highlightLang.rawValue,
-                    colors: .dark(.github)
-                )
+            let detectedLanguage: CodeLanguage
+            if let lang = language, !lang.isEmpty {
+                detectedLanguage = LanguageDetection.languageFromFence(lang)
             } else {
-                attributed = try await highlight.attributedText(code)
+                detectedLanguage = .default
             }
+
+            // Load theme
+            let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
+
+            // Highlight using tree-sitter
+            let attributed = try await highlighter.highlightCode(
+                code,
+                language: detectedLanguage,
+                theme: theme
+            )
             highlightedText = attributed
         } catch {
             // Fallback to plain text on error
             highlightedText = AttributedString(code)
         }
+    }
+
+    private func defaultTheme() -> EditorTheme {
+        let bg = NSColor(red: 0.12, green: 0.12, blue: 0.18, alpha: 1.0)
+        let fg = NSColor(red: 0.8, green: 0.84, blue: 0.96, alpha: 1.0)
+
+        return EditorTheme(
+            text: .init(color: fg),
+            insertionPoint: fg,
+            invisibles: .init(color: .systemGray),
+            background: bg,
+            lineHighlight: bg.withAlphaComponent(0.05),
+            selection: .selectedTextBackgroundColor,
+            keywords: .init(color: .systemPurple),
+            commands: .init(color: .systemBlue),
+            types: .init(color: .systemYellow),
+            attributes: .init(color: .systemRed),
+            variables: .init(color: .systemCyan),
+            values: .init(color: .systemOrange),
+            numbers: .init(color: .systemOrange),
+            strings: .init(color: .systemGreen),
+            characters: .init(color: .systemGreen),
+            comments: .init(color: .systemGray)
+        )
     }
 }

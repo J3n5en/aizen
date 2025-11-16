@@ -6,13 +6,15 @@
 //
 
 import SwiftUI
+import CoreData
 
 struct FileTabView: View {
     let worktree: Worktree
+    @Environment(\.managedObjectContext) private var viewContext
 
     var body: some View {
-        if let path = worktree.path {
-            FileBrowserSessionView(rootPath: path)
+        if worktree.path != nil {
+            FileBrowserSessionView(worktree: worktree, context: viewContext)
         } else {
             VStack {
                 Image(systemName: "exclamationmark.triangle")

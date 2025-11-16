@@ -72,6 +72,9 @@
     <entity name="FileBrowserSession" representedClassName="FileBrowserSession" syncable="YES" codeGenerationType="class">
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="currentPath" optional="YES" attributeType="String"/>
+        <attribute name="expandedPaths" optional="YES" attributeType="Transformable"/>
+        <attribute name="openFilesPaths" optional="YES" attributeType="Transformable"/>
+        <attribute name="selectedFilePath" optional="YES" attributeType="String"/>
         <relationship name="worktree" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Worktree" inverseName="fileBrowserSession" inverseEntity="Worktree"/>
     </entity>
     <elements>

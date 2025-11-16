@@ -110,11 +110,9 @@ struct FileTreeItem: View {
             .background(isHovering ? Color.secondary.opacity(0.1) : Color.clear)
             .contentShape(Rectangle())
             .onTapGesture {
-                print("DEBUG: Tapped item: \(item.name), isDirectory: \(item.isDirectory)")
                 if item.isDirectory {
                     toggleExpanded()
                 } else {
-                    print("DEBUG: Opening file: \(item.path)")
                     onOpenFile(item.path)
                 }
             }

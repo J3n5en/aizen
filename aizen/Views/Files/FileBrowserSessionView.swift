@@ -6,12 +6,13 @@
 //
 
 import SwiftUI
+import CoreData
 
 struct FileBrowserSessionView: View {
     @StateObject private var viewModel: FileBrowserViewModel
 
-    init(rootPath: String) {
-        _viewModel = StateObject(wrappedValue: FileBrowserViewModel(rootPath: rootPath))
+    init(worktree: Worktree, context: NSManagedObjectContext) {
+        _viewModel = StateObject(wrappedValue: FileBrowserViewModel(worktree: worktree, context: context))
     }
 
     var body: some View {

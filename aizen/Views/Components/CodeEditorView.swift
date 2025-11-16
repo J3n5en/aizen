@@ -97,27 +97,10 @@ struct CodeEditorView: View {
 
     private var detectedLanguage: CodeLanguage {
         guard let lang = language?.lowercased() else {
-            return .default
+            return CodeLanguage.default
         }
 
-        switch lang {
-        case "swift": return .swift
-        case "javascript", "js", "jsx": return .javascript
-        case "typescript", "ts", "tsx": return .tsx
-        case "python", "py": return .python
-        case "ruby", "rb": return .ruby
-        case "java": return .java
-        case "c": return .c
-        case "cpp", "c++": return .cpp
-        case "go": return .go
-        case "rust", "rs": return .rust
-        case "php": return .php
-        case "html": return .html
-        case "css": return .css
-        case "json": return .json
-        case "markdown", "md": return .markdown
-        case "bash", "sh": return .bash
-        default: return .default
-        }
+        // Use LanguageDetection to map extension to language
+        return LanguageDetection.codeLanguageFromString(lang)
     }
 }

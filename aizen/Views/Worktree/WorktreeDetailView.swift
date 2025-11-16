@@ -19,6 +19,7 @@ struct WorktreeDetailView: View {
 
     @StateObject private var viewModel: WorktreeViewModel
 
+    @AppStorage("worktreeTabStates") private var worktreeTabStatesData: String = "{}"
     @State private var selectedTab = "chat"
     @State private var lastOpenedApp: DetectedApp?
     @State private var showingGitSidebar = false
@@ -46,6 +47,37 @@ struct WorktreeDetailView: View {
         )
         gitOperationHandler = handler
         return handler
+    }
+
+    // MARK: - Tab State Persistence
+
+    private func loadTabState() {
+        guard let worktreeId = worktree.id?.uuidString else { return }
+
+        if let data = worktreeTabStatesData.data(using: .utf8),
+           let tabStates = try? JSONDecoder().decode([String: String].self, from: data),
+           let savedTab = tabStates[worktreeId] {
+            selectedTab = savedTab
+        } else {
+            selectedTab = "chat"
+        }
+    }
+
+    private func saveTabState() {
+        guard let worktreeId = worktree.id?.uuidString else { return }
+
+        var tabStates: [String: String] = [:]
+        if let data = worktreeTabStatesData.data(using: .utf8),
+           let existing = try? JSONDecoder().decode([String: String].self, from: data) {
+            tabStates = existing
+        }
+
+        tabStates[worktreeId] = selectedTab
+
+        if let encoded = try? JSONEncoder().encode(tabStates),
+           let jsonString = String(data: encoded, encoding: .utf8) {
+            worktreeTabStatesData = jsonString
+        }
     }
 
     var chatSessions: [ChatSession] {
@@ -261,10 +293,17 @@ struct WorktreeDetailView: View {
             .task {
                 await setupGitMonitoring()
             }
+            .onAppear {
+                loadTabState()
+            }
             .onChange(of: worktree.id) { newId in
                 Task {
                     await setupGitMonitoring()
                 }
+                loadTabState()
+            }
+            .onChange(of: selectedTab) { _ in
+                saveTabState()
             }
             .onDisappear {
                 gitIndexWatcher?.stopWatching()

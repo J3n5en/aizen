@@ -1,5 +1,5 @@
 {
-  "originHash" : "559d63e76efff6a827fb68cffcf76641856869905b393cfc588f69af92d3a39d",
+  "originHash" : "b0c69ea4209474ca1074b4e753995e28448726a6d405f0732b752845424eef1e",
   "pins" : [
     {
       "identity" : "codeeditlanguages",
@@ -35,24 +35,6 @@
       "state" : {
         "revision" : "d7ac3f11f22ec2e820187acce8f3a3fb7aa8ddec",
         "version" : "0.12.1"
-      }
-    },
-    {
-      "identity" : "highlightswift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/appstefan/highlightswift",
-      "state" : {
-        "revision" : "784ca3ccfc8a2cf724fbb2f06cb6ec3329424da3",
-        "version" : "1.1.0"
-      }
-    },
-    {
-      "identity" : "neon",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ChimeHQ/Neon",
-      "state" : {
-        "branch" : "main",
-        "revision" : "54ef3a64d5c87aaac3dfc797357d71d16e50a55b"
       }
     },
     {
@@ -114,8 +96,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ChimeHQ/SwiftTreeSitter",
       "state" : {
-        "branch" : "main",
-        "revision" : "39236f7952042976ebfd472db6441ca7ab05efbd"
+        "revision" : "08ef81eb8620617b55b08868126707ad72bf754f",
+        "version" : "0.25.0"
       }
     },
     {

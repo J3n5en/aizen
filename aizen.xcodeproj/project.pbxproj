@@ -8,11 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		CC1234572EA241B30007DBB1 /* libghostty.a in Frameworks */ = {isa = PBXBuildFile; fileRef = CC1234562EA241B30007DBB1 /* libghostty.a */; };
-		CC128B182EAF8DD600EA9A50 /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC128B172EAF8DD600EA9A50 /* HighlightSwift */; };
 		CC128B1B2EAF8DD600EA9A50 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CC128B1A2EAF8DD600EA9A50 /* Sparkle */; };
 		CC6CA52C2EA25D9D001CADD7 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = CCB04B732EA241B60007DBB1 /* Markdown */; };
 		CC8001732EC989600037DA4C /* CodeEditTextView in Frameworks */ = {isa = PBXBuildFile; productRef = CCFE00042EBF000000000004 /* CodeEditTextView */; };
-		CC8001742EC989600037DA4C /* Neon in Frameworks */ = {isa = PBXBuildFile; productRef = CCFE00052EBF000000000005 /* Neon */; };
 		CC8001752EC989600037DA4C /* SwiftTreeSitter in Frameworks */ = {isa = PBXBuildFile; productRef = CCFE00062EBF000000000006 /* SwiftTreeSitter */; };
 		CC80198E2EC98CE50037DA4C /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = CCFE00082EBF000000000008 /* CodeEditSourceEditor */; };
 /* End PBXBuildFile section */
@@ -79,10 +77,8 @@
 			files = (
 				CC80198E2EC98CE50037DA4C /* CodeEditSourceEditor in Frameworks */,
 				CC8001752EC989600037DA4C /* SwiftTreeSitter in Frameworks */,
-				CC8001742EC989600037DA4C /* Neon in Frameworks */,
 				CC8001732EC989600037DA4C /* CodeEditTextView in Frameworks */,
 				CC1234572EA241B30007DBB1 /* libghostty.a in Frameworks */,
-				CC128B182EAF8DD600EA9A50 /* HighlightSwift in Frameworks */,
 				CC6CA52C2EA25D9D001CADD7 /* Markdown in Frameworks */,
 				CC128B1B2EAF8DD600EA9A50 /* Sparkle in Frameworks */,
 			);
@@ -156,10 +152,8 @@
 			name = aizen;
 			packageProductDependencies = (
 				CCB04B732EA241B60007DBB1 /* Markdown */,
-				CC128B172EAF8DD600EA9A50 /* HighlightSwift */,
 				CC128B1A2EAF8DD600EA9A50 /* Sparkle */,
 				CCFE00042EBF000000000004 /* CodeEditTextView */,
-				CCFE00052EBF000000000005 /* Neon */,
 				CCFE00062EBF000000000006 /* SwiftTreeSitter */,
 				CCFE00082EBF000000000008 /* CodeEditSourceEditor */,
 			);
@@ -247,10 +241,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				CCB04B742EA241B60007DBB1 /* XCRemoteSwiftPackageReference "swift-markdown" */,
-				CC128B162EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "highlightswift" */,
 				CC128B192EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				CCFE00012EBF000000000001 /* XCRemoteSwiftPackageReference "CodeEditTextView" */,
-				CCFE00022EBF000000000002 /* XCRemoteSwiftPackageReference "Neon" */,
 				CCFE00032EBF000000000003 /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */,
 				CCFE00072EBF000000000007 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
 			);
@@ -725,14 +717,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		CC128B162EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "highlightswift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/appstefan/highlightswift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.9;
-			};
-		};
 		CC128B192EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -757,14 +741,6 @@
 				minimumVersion = 0.12.1;
 			};
 		};
-		CCFE00022EBF000000000002 /* XCRemoteSwiftPackageReference "Neon" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ChimeHQ/Neon";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
 		CCFE00032EBF000000000003 /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ChimeHQ/SwiftTreeSitter";
@@ -784,11 +760,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		CC128B172EAF8DD600EA9A50 /* HighlightSwift */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC128B162EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "highlightswift" */;
-			productName = HighlightSwift;
-		};
 		CC128B1A2EAF8DD600EA9A50 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC128B192EAF8DD600EA9A50 /* XCRemoteSwiftPackageReference "Sparkle" */;
@@ -803,11 +774,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CCFE00012EBF000000000001 /* XCRemoteSwiftPackageReference "CodeEditTextView" */;
 			productName = CodeEditTextView;
-		};
-		CCFE00052EBF000000000005 /* Neon */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CCFE00022EBF000000000002 /* XCRemoteSwiftPackageReference "Neon" */;
-			productName = Neon;
 		};
 		CCFE00062EBF000000000006 /* SwiftTreeSitter */ = {
 			isa = XCSwiftPackageProductDependency;
