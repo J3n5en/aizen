@@ -58,12 +58,19 @@ struct WorktreeDetailView: View {
         return sessions.sorted { ($0.createdAt ?? Date()) < ($1.createdAt ?? Date()) }
     }
 
+    var browserSessions: [BrowserSession] {
+        let sessions = (worktree.browserSessions as? Set<BrowserSession>) ?? []
+        return sessions.sorted { ($0.createdAt ?? Date()) < ($1.createdAt ?? Date()) }
+    }
+
     var hasActiveSessions: Bool {
-        (selectedTab == "chat" && !chatSessions.isEmpty) || (selectedTab == "terminal" && !terminalSessions.isEmpty)
+        (selectedTab == "chat" && !chatSessions.isEmpty) ||
+        (selectedTab == "terminal" && !terminalSessions.isEmpty) ||
+        (selectedTab == "browser" && !browserSessions.isEmpty)
     }
 
     var shouldShowSessionToolbar: Bool {
-        selectedTab != "files" && hasActiveSessions
+        selectedTab != "files" && selectedTab != "browser" && hasActiveSessions
     }
 
     var hasGitChanges: Bool {
@@ -103,6 +110,11 @@ struct WorktreeDetailView: View {
                     )
                 } else if selectedTab == "files" {
                     FileTabView(worktree: worktree)
+                } else if selectedTab == "browser" {
+                    BrowserTabView(
+                        worktree: worktree,
+                        selectedSessionId: $viewModel.selectedBrowserSessionId
+                    )
                 }
             }
         }
@@ -239,6 +251,7 @@ struct WorktreeDetailView: View {
                         Label(String(localized: "worktree.session.chat"), systemImage: "message").tag("chat")
                         Label(String(localized: "worktree.session.terminal"), systemImage: "terminal").tag("terminal")
                         Label(String(localized: "worktree.session.files"), systemImage: "folder").tag("files")
+                        Label(String(localized: "worktree.session.browser"), systemImage: "globe").tag("browser")
                     }
                     .pickerStyle(.segmented)
                 }
