@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "9a1d2a19d3595fcf8d9c447173f9a1687b3dcadb",
-        "version" : "2.8.0"
+        "revision" : "5581748cef2bae787496fe6d61139aebe0a451f6",
+        "version" : "2.8.1"
       }
     },
     {
@@ -52,7 +52,7 @@
       "location" : "https://github.com/apple/swift-markdown",
       "state" : {
         "branch" : "main",
-        "revision" : "0186e808140db5eb5ba9b052e86fbe15b88f7975"
+        "revision" : "f7a559ec0d1f4a6a31b82187b5cdf97c632f68f6"
       }
     },
     {
