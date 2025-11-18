@@ -35,6 +35,19 @@ class GhosttyTerminalView: NSView {
 
     private static let logger = Logger(subsystem: "com.aizen.app", category: "GhosttyTerminal")
 
+    // MARK: - IME State
+
+    /// Track marked text for IME (Input Method Editor)
+    private var markedText: String = ""
+    private var markedTextAttributes: [NSAttributedString.Key: Any] = [
+        .underlineStyle: NSUnderlineStyle.single.rawValue,
+        .underlineColor: NSColor.textColor
+    ]
+
+    /// Accumulates text from insertText calls during keyDown
+    /// Set to non-nil during keyDown to track if IME inserted text
+    private var keyTextAccumulator: [String]?
+
     // MARK: - Terminal Settings from AppStorage
 
     @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
@@ -359,23 +372,63 @@ class GhosttyTerminalView: NSView {
     override func keyDown(with event: NSEvent) {
         guard let surface = surface else {
             Self.logger.warning("keyDown: no surface")
+            // Even without surface, call interpretKeyEvents for IME support
+            interpretKeyEvents([event])
             return
         }
 
-        // Convert NSEvent to Ghostty key event
-        var keyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+        let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
-        // Set text field if we have characters
-        // Control characters are handled by Ghostty internally
+        // Track if we had marked text before this event
+        // Important for handling ESC and backspace during IME composition
+        let markedTextBefore = !markedText.isEmpty
+
+        // Set up key text accumulator to track insertText calls
+        keyTextAccumulator = []
+        defer { keyTextAccumulator = nil }
+
+        // Call interpretKeyEvents to allow IME processing
+        // This may call insertText (text committed) or setMarkedText (composing)
+        interpretKeyEvents([event])
+
+        // If we have accumulated text, it means insertText was called
+        // Send the composed text to the terminal
+        if let texts = keyTextAccumulator, !texts.isEmpty {
+            for text in texts {
+                text.withCString { ptr in
+                    var keyEvent = event.ghosttyKeyEvent(action)
+                    keyEvent.text = ptr
+                    keyEvent.composing = false
+                    ghostty_surface_key(surface.unsafeCValue, keyEvent)
+                }
+            }
+            return
+        }
+
+        // If we're still composing (have marked text), don't send key event
+        // OR if we had marked text before and pressed a key like backspace/ESC,
+        // we're still in composing mode
+        let isComposing = !markedText.isEmpty || markedTextBefore
+        if isComposing {
+            // ESC or backspace during composition shouldn't be sent to terminal
+            return
+        }
+
+        // Normal key event - no IME involvement
+        var keyEvent = event.ghosttyKeyEvent(action)
+
+        // Set text field if we have printable characters
         if let chars = event.ghosttyCharacters,
            let codepoint = chars.utf8.first,
            codepoint >= 0x20 {
             chars.withCString { textPtr in
                 keyEvent.text = textPtr
+                keyEvent.composing = false
                 surface.sendKeyEvent(Ghostty.Input.KeyEvent(cValue: keyEvent)!)
             }
         } else {
             keyEvent.text = nil
+            keyEvent.composing = false
             if let inputEvent = Ghostty.Input.KeyEvent(cValue: keyEvent) {
                 surface.sendKeyEvent(inputEvent)
             }
@@ -577,60 +630,143 @@ class GhosttyTerminalView: NSView {
     }
 }
 
-// MARK: - NSTextInputClient Stub Implementation
+// MARK: - NSTextInputClient Implementation
 
-/// Basic NSTextInputClient protocol conformance
+/// NSTextInputClient protocol conformance for IME (Input Method Editor) support
 ///
-/// This is required for IME (Input Method Editor) support for languages like Japanese, Chinese, etc.
-/// Currently provides minimal stubs - full IME support can be added later
+/// This enables proper input for languages like Japanese, Chinese, Korean, etc.
+/// Marked text is pre-edit text shown during composition before final character selection
 extension GhosttyTerminalView: NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
-        // TODO: Implement for IME support
-        // For now, simple text insertion
-        guard let text = string as? String else { return }
+        guard let text = anyToString(string) else { return }
+
+        // Clear any marked text when committing
+        if !markedText.isEmpty {
+            markedText = ""
+            needsDisplay = true
+        }
+
+        // If we're in a keyDown event (accumulator exists), accumulate the text
+        // The keyDown handler will send it to the terminal
+        if keyTextAccumulator != nil {
+            keyTextAccumulator?.append(text)
+            return
+        }
+
+        // Otherwise send directly to terminal (e.g., paste operation)
         surface?.sendText(text)
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        // TODO: Implement for IME preedit support
+        guard let text = anyToString(string) else { return }
+
+        // Update marked text state
+        markedText = text
+
+        // Tell system we've handled the marked text
+        inputContext?.invalidateCharacterCoordinates()
+        needsDisplay = true
+
+        Self.logger.debug("IME marked text: \(text)")
     }
 
     func unmarkText() {
-        // TODO: Implement for IME support
+        // Commit any pending marked text
+        if !markedText.isEmpty {
+            surface?.sendText(markedText)
+            markedText = ""
+            needsDisplay = true
+        }
     }
 
     func selectedRange() -> NSRange {
-        // TODO: Return actual selection range from Ghostty
+        // Terminals don't have text selection in the traditional sense for IME
         return NSRange(location: NSNotFound, length: 0)
     }
 
     func markedRange() -> NSRange {
-        // TODO: Return marked text range for IME
-        return NSRange(location: NSNotFound, length: 0)
+        // Return range of marked text if we have any
+        if markedText.isEmpty {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        return NSRange(location: 0, length: markedText.utf16.count)
     }
 
     func hasMarkedText() -> Bool {
-        // TODO: Track IME preedit state
-        return false
+        return !markedText.isEmpty
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        // TODO: Return text from surface for IME
-        return nil
+        // Return attributed marked text for IME window
+        guard !markedText.isEmpty else { return nil }
+
+        let attributedString = NSAttributedString(
+            string: markedText,
+            attributes: markedTextAttributes
+        )
+
+        if actualRange != nil {
+            actualRange?.pointee = NSRange(location: 0, length: markedText.utf16.count)
+        }
+
+        return attributedString
     }
 
     func validAttributesForMarkedText() -> [NSAttributedString.Key] {
-        return []
+        return [
+            .underlineStyle,
+            .underlineColor,
+            .backgroundColor,
+            .foregroundColor
+        ]
     }
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-        // Return cursor position for IME window placement
-        // TODO: Get actual cursor position from Ghostty
-        return NSRect(x: frame.origin.x, y: frame.origin.y, width: 0, height: 0)
+        // Get cursor position from Ghostty for IME window placement
+        guard let surface = surface?.unsafeCValue else {
+            return NSRect(x: frame.origin.x, y: frame.origin.y, width: 0, height: 0)
+        }
+
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = 0
+        var height: Double = 0
+
+        // Get IME cursor position from Ghostty
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+
+        // Ghostty coordinates are in top-left (0, 0) origin, but AppKit expects bottom-left
+        // Convert Y coordinate by subtracting from frame height
+        let viewRect = NSRect(
+            x: x,
+            y: frame.size.height - y,
+            width: range.length == 0 ? 0 : max(width, 1),
+            height: max(height, 1)
+        )
+
+        // Convert to window coordinates
+        let windowRect = convert(viewRect, to: nil)
+
+        // Convert to screen coordinates
+        guard let window = window else { return windowRect }
+        return window.convertToScreen(windowRect)
     }
 
     func characterIndex(for point: NSPoint) -> Int {
         return NSNotFound
+    }
+
+    // MARK: - Helper
+
+    private func anyToString(_ string: Any) -> String? {
+        switch string {
+        case let string as NSString:
+            return string as String
+        case let string as NSAttributedString:
+            return string.string
+        default:
+            return nil
+        }
     }
 }
 
