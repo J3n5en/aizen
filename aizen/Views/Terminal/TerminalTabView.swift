@@ -45,6 +45,16 @@ struct TerminalTabView: View {
                     selectedSessionId = sessions.first?.id
                 }
             }
+            .onChange(of: sessions.count) { _ in
+                // Validate that selectedSessionId exists in current sessions
+                // If not, select the most recent session
+                if let currentId = selectedSessionId,
+                   !sessions.contains(where: { $0.id == currentId }) {
+                    selectedSessionId = sessions.last?.id
+                } else if selectedSessionId == nil {
+                    selectedSessionId = sessions.last?.id
+                }
+            }
         }
     }
 

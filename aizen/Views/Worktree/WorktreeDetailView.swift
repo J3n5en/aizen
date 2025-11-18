@@ -445,7 +445,9 @@ struct WorktreeDetailView: View {
 
         do {
             try context.save()
+            logger.info("Created new terminal session with ID: \(session.id?.uuidString ?? "nil")")
             viewModel.selectedTerminalSessionId = session.id
+            logger.info("Set selectedTerminalSessionId to: \(session.id?.uuidString ?? "nil")")
         } catch {
             logger.error("Failed to create terminal session: \(error.localizedDescription)")
         }
