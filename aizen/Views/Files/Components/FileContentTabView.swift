@@ -186,7 +186,6 @@ struct FileTab: View {
         HStack(spacing: 6) {
             // File icon
             FileIconView(path: file.path, size: 12)
-                .id(file.path)
 
             Text(file.name)
                 .font(.system(size: 11))

@@ -49,6 +49,7 @@ struct FileTreeView: View {
                 }
             }
         }
+        .id(viewModel.treeRefreshTrigger)
     }
 }
 
@@ -102,7 +103,6 @@ struct FileTreeItem: View {
 
                 // Icon
                 FileIconView(path: item.path, size: 12)
-                    .id(item.path)
 
                 // Name
                 Text(item.name)

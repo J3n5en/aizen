@@ -12,7 +12,7 @@ import CoreData
 import AppKit
 
 struct FileItem: Identifiable {
-    let id = UUID()
+    var id: String { path }
     let name: String
     let path: String
     let isDirectory: Bool
@@ -44,6 +44,7 @@ class FileBrowserViewModel: ObservableObject {
     @Published var openFiles: [OpenFileInfo] = []
     @Published var selectedFileId: UUID?
     @Published var expandedPaths: Set<String> = []
+    @Published var treeRefreshTrigger = UUID()
 
     private let worktree: Worktree
     private let viewContext: NSManagedObjectContext
@@ -210,6 +211,10 @@ class FileBrowserViewModel: ObservableObject {
         expandedPaths.contains(path)
     }
 
+    private func refreshTree() {
+        treeRefreshTrigger = UUID()
+    }
+
     // MARK: - File Operations
 
     private let fileService = FileService()
@@ -221,11 +226,8 @@ class FileBrowserViewModel: ObservableObject {
             try await fileService.createFile(at: filePath)
             ToastManager.shared.show("Created \(name)", type: .success)
 
-            // Refresh the parent directory by toggling expansion
-            if expandedPaths.contains(parentPath) {
-                expandedPaths.remove(parentPath)
-                expandedPaths.insert(parentPath)
-            }
+            // Refresh the tree to show new file
+            refreshTree()
 
             // Open the new file
             await openFile(path: filePath)
@@ -241,11 +243,8 @@ class FileBrowserViewModel: ObservableObject {
             try await fileService.createDirectory(at: folderPath)
             ToastManager.shared.show("Created folder \(name)", type: .success)
 
-            // Refresh the parent directory
-            if expandedPaths.contains(parentPath) {
-                expandedPaths.remove(parentPath)
-                expandedPaths.insert(parentPath)
-            }
+            // Refresh the tree to show new folder
+            refreshTree()
 
             // Auto-expand the newly created folder
             expandedPaths.insert(folderPath)
@@ -274,17 +273,14 @@ class FileBrowserViewModel: ObservableObject {
                 )
             }
 
-            // Refresh parent directory
-            if expandedPaths.contains(parentPath) {
-                expandedPaths.remove(parentPath)
-                expandedPaths.insert(parentPath)
-            }
-
             // If it was a directory that was expanded, update its path in expandedPaths
             if expandedPaths.contains(oldPath) {
                 expandedPaths.remove(oldPath)
                 expandedPaths.insert(newPath)
             }
+
+            // Refresh the tree to show rename
+            refreshTree()
 
             saveSession()
         } catch {
@@ -294,7 +290,6 @@ class FileBrowserViewModel: ObservableObject {
 
     func deleteItem(path: String) async {
         let fileName = (path as NSString).lastPathComponent
-        let parentPath = (path as NSString).deletingLastPathComponent
 
         do {
             try await fileService.deleteItem(at: path)
@@ -308,11 +303,8 @@ class FileBrowserViewModel: ObservableObject {
             // Remove from expanded paths if it was a directory
             expandedPaths.remove(path)
 
-            // Refresh parent directory
-            if expandedPaths.contains(parentPath) {
-                expandedPaths.remove(parentPath)
-                expandedPaths.insert(parentPath)
-            }
+            // Refresh the tree to show deletion
+            refreshTree()
         } catch {
             ToastManager.shared.show(error.localizedDescription, type: .error)
         }
