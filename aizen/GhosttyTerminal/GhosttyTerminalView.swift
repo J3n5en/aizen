@@ -256,6 +256,12 @@ class GhosttyTerminalView: NSView {
         inputHandler.handleFlagsChanged(with: event)
     }
 
+    override func doCommand(by selector: Selector) {
+        // Override to suppress NSBeep when interpretKeyEvents encounters unhandled commands
+        // Without this, keys like delete at beginning of line, cmd+c with no selection, etc. cause beeps
+        // Terminal handles all input via Ghostty, so we silently ignore unhandled commands
+    }
+
     // MARK: - Mouse Input
 
     override func mouseDown(with event: NSEvent) {

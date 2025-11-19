@@ -222,6 +222,9 @@ extension Ghostty {
 
                 theme = \(terminalThemeName)
 
+                # Disable audible bell
+                audible-bell = false
+
                 # Custom keybinds
                 keybind = shift+enter=text:\\n
 
