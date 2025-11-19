@@ -6,8 +6,10 @@
 //
 
 import CoreData
+import os.log
 
 struct PersistenceController {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "Persistence")
     static let shared = PersistenceController()
 
     @MainActor
@@ -93,7 +95,7 @@ struct PersistenceController {
                 try container.viewContext.save()
             }
         } catch {
-            print("Failed to create default workspace: \(error)")
+            logger.error("Failed to create default workspace: \(error)")
         }
     }
 }

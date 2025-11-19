@@ -23,7 +23,7 @@ class ChatSessionViewModel: ObservableObject {
 
     // MARK: - Handlers
 
-    private let messageHandler: MessageHandler
+    let messageHandler: MessageHandler
     private let agentSwitcher: AgentSwitcher
     private let commandHandler = CommandAutocompleteHandler()
 
@@ -49,6 +49,7 @@ class ChatSessionViewModel: ObservableObject {
     @Published var showingPermissionAlert: Bool = false
     @Published var showingAgentSwitchWarning = false
     @Published var pendingAgentSwitch: String?
+    @Published var showingCommandAutocomplete: Bool = false
 
     // MARK: - Derived State (bridges nested AgentSession properties for reliable observation)
     @Published var needsAuth: Bool = false
@@ -64,7 +65,8 @@ class ChatSessionViewModel: ObservableObject {
 
     var scrollProxy: ScrollViewProxy?
     private var cancellables = Set<AnyCancellable>()
-    private let logger = Logger.forCategory("ChatSession")
+    private var notificationCancellables = Set<AnyCancellable>()
+    let logger = Logger.forCategory("ChatSession")
 
     // MARK: - Computed Properties
 
@@ -91,6 +93,9 @@ class ChatSessionViewModel: ObservableObject {
 
         self.messageHandler = MessageHandler(viewContext: viewContext, session: session)
         self.agentSwitcher = AgentSwitcher(viewContext: viewContext, session: session)
+
+        setupNotificationObservers()
+        setupInputTextObserver()
     }
 
     // MARK: - Lifecycle
@@ -104,11 +109,11 @@ class ChatSessionViewModel: ObservableObject {
             setupSessionObservers(session: existingSession)
 
             if !existingSession.isActive {
-                Task {
+                Task { [self] in
                     do {
-                        try await existingSession.start(agentName: selectedAgent, workingDir: worktree.path!)
+                        try await existingSession.start(agentName: self.selectedAgent, workingDir: worktree.path!)
                     } catch {
-                        print("[ChatSessionViewModel] Failed to start session for \(selectedAgent): \(error.localizedDescription)")
+                        self.logger.error("Failed to start session for \(self.selectedAgent): \(error.localizedDescription)")
                         // Session will show auth dialog or setup dialog automatically via needsAuthentication/needsAgentSetup
                     }
                 }
@@ -133,9 +138,9 @@ class ChatSessionViewModel: ObservableObject {
 
                 if !newSession.isActive {
                     do {
-                        try await newSession.start(agentName: selectedAgent, workingDir: worktree.path!)
+                        try await newSession.start(agentName: self.selectedAgent, workingDir: worktree.path!)
                     } catch {
-                        print("[ChatSessionViewModel] Failed to start new session for \(selectedAgent): \(error.localizedDescription)")
+                        self.logger.error("Failed to start new session for \(self.selectedAgent): \(error.localizedDescription)")
                         // Session will show auth dialog or setup dialog automatically via needsAuthentication/needsAgentSetup
                     }
                 }
@@ -155,100 +160,6 @@ class ChatSessionViewModel: ObservableObject {
         currentModeId = session.currentModeId
         showingPermissionAlert = session.permissionHandler.showingPermissionAlert
         currentPermissionRequest = session.permissionHandler.permissionRequest
-    }
-
-    func loadMessages() {
-        guard let messageSet = session.messages as? Set<ChatMessage> else {
-            return
-        }
-
-        let sortedMessages = messageSet.sorted { $0.timestamp! < $1.timestamp! }
-
-        let loadedMessages = sortedMessages.map { msg in
-            MessageItem(
-                id: msg.id!.uuidString,
-                role: messageRoleFromString(msg.role!),
-                content: msg.contentJSON!,
-                timestamp: msg.timestamp!
-            )
-        }
-
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            messages = loadedMessages
-            rebuildTimeline()
-        }
-
-        scrollToBottom()
-    }
-
-    // MARK: - Message Operations
-
-    func sendMessage() {
-        let messageText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !messageText.isEmpty else { return }
-
-        let messageAttachments = attachments
-
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            inputText = ""
-            attachments = []
-            isProcessing = true
-        }
-
-        let userMessage = MessageItem(
-            id: UUID().uuidString,
-            role: .user,
-            content: messageText,
-            timestamp: Date()
-        )
-
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            messages.append(userMessage)
-            rebuildTimeline()
-        }
-
-        Task {
-            do {
-                guard let agentSession = self.currentAgentSession else {
-                    throw NSError(domain: "ChatSessionView", code: -1, userInfo: [NSLocalizedDescriptionKey: "No agent session"])
-                }
-
-                if !agentSession.isActive {
-                    try await agentSession.start(agentName: self.selectedAgent, workingDir: self.worktree.path!)
-                }
-
-                try await agentSession.sendMessage(content: messageText, attachments: messageAttachments)
-
-                self.messageHandler.saveMessage(content: messageText, role: "user", agentName: self.selectedAgent)
-                self.scrollToBottom()
-            } catch {
-                let errorMessage = MessageItem(
-                    id: UUID().uuidString,
-                    role: .system,
-                    content: String(localized: "chat.error.prefix \(error.localizedDescription)"),
-                    timestamp: Date()
-                )
-
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    self.messages.append(errorMessage)
-                    self.rebuildTimeline()
-                }
-
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    self.attachments = messageAttachments
-                }
-            }
-
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                self.isProcessing = false
-            }
-        }
-    }
-
-    func cancelCurrentPrompt() {
-        Task {
-            await currentAgentSession?.cancelCurrentPrompt()
-        }
     }
 
     // MARK: - Agent Management
@@ -299,36 +210,6 @@ class ChatSessionViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Attachment Management
-
-    func removeAttachment(_ attachment: URL) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            attachments.removeAll { $0 == attachment }
-        }
-    }
-
-    // MARK: - Timeline
-
-    func rebuildTimeline() {
-        timelineItems = (messages.map { .message($0) } + toolCalls.map { .toolCall($0) })
-            .sorted { $0.timestamp < $1.timestamp }
-    }
-
-    // MARK: - Scrolling
-
-    func scrollToBottom() {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(100))
-            withAnimation(.easeOut(duration: 0.3)) {
-                if let lastMessage = messages.last {
-                    scrollProxy?.scrollTo(lastMessage.id, anchor: .bottom)
-                } else if isProcessing {
-                    scrollProxy?.scrollTo("processing", anchor: .bottom)
-                }
-            }
-        }
-    }
-
     // MARK: - Markdown Rendering
 
     func renderInlineMarkdown(_ text: String) -> AttributedString {
@@ -353,6 +234,42 @@ class ChatSessionViewModel: ObservableObject {
     }
 
     // MARK: - Private Helpers
+
+    private func setupNotificationObservers() {
+        NotificationCenter.default.publisher(for: .cycleModeShortcut)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.cycleModeForward()
+            }
+            .store(in: &notificationCancellables)
+
+        NotificationCenter.default.publisher(for: .interruptAgentShortcut)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.cancelCurrentPrompt()
+            }
+            .store(in: &notificationCancellables)
+    }
+
+    private func setupInputTextObserver() {
+        $inputText
+            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
+            .sink { [weak self] newText in
+                guard let self = self else { return }
+                self.updateCommandSuggestions(newText)
+            }
+            .store(in: &notificationCancellables)
+
+        $commandSuggestions
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] suggestions in
+                guard let self = self else { return }
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+                    self.showingCommandAutocomplete = !suggestions.isEmpty
+                }
+            }
+            .store(in: &notificationCancellables)
+    }
 
     private func setupSessionObservers(session: AgentSession) {
         cancellables.removeAll()
@@ -463,19 +380,6 @@ class ChatSessionViewModel: ObservableObject {
                 self.currentPermissionRequest = request
             }
             .store(in: &cancellables)
-    }
-
-
-
-    private func messageRoleFromString(_ role: String) -> MessageRole {
-        switch role.lowercased() {
-        case "user":
-            return .user
-        case "agent":
-            return .agent
-        default:
-            return .system
-        }
     }
 
     private func extractLastBold(_ inlineElements: some Sequence<Markup>) -> AttributedString? {

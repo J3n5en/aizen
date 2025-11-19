@@ -1,7 +1,9 @@
 import SwiftUI
 import WebKit
+import os.log
 
 struct BrowserControlBar: View {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "BrowserControl")
     @Binding var url: String
     @Binding var canGoBack: Bool
     @Binding var canGoForward: Bool
@@ -13,8 +15,16 @@ struct BrowserControlBar: View {
     let onReload: () -> Void
     let onNavigate: (String) -> Void
 
-    @State private var urlInput: String = ""
+    @State private var editingURL: String = ""
     @FocusState private var isURLFieldFocused: Bool
+
+    // Derive URL input from binding - show current URL when not focused, editing URL when focused
+    private var urlInputBinding: Binding<String> {
+        Binding(
+            get: { isURLFieldFocused ? editingURL : url },
+            set: { editingURL = $0 }
+        )
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -86,7 +96,7 @@ struct BrowserControlBar: View {
     @ViewBuilder
     private var urlTextField: some View {
         if #available(macOS 15.0, *) {
-            TextField(String(localized: "browser.control.url_placeholder"), text: $urlInput)
+            TextField(String(localized: "browser.control.url_placeholder"), text: urlInputBinding)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .padding(.horizontal, 12)
@@ -94,17 +104,13 @@ struct BrowserControlBar: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .focused($isURLFieldFocused)
                 .onSubmit(handleURLSubmit)
-                .onChange(of: url, perform: handleURLChange)
-                .onAppear { urlInput = url }
         } else {
-            TextField(String(localized: "browser.control.url_placeholder"), text: $urlInput)
+            TextField(String(localized: "browser.control.url_placeholder"), text: urlInputBinding)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 14))
                 .frame(height: 32)
                 .focused($isURLFieldFocused)
                 .onSubmit(handleURLSubmit)
-                .onChange(of: url, perform: handleURLChange)
-                .onAppear { urlInput = url }
         }
     }
 
@@ -118,7 +124,7 @@ struct BrowserControlBar: View {
     }
 
     private func handleURLSubmit() {
-        let trimmedInput = urlInput.trimmingCharacters(in: .whitespaces)
+        let trimmedInput = editingURL.trimmingCharacters(in: .whitespaces)
         guard !trimmedInput.isEmpty else { return }
 
         // Wrap in do-catch to prevent crashes
@@ -133,15 +139,8 @@ struct BrowserControlBar: View {
             // Unfocus the text field so URL updates from navigation will be visible
             isURLFieldFocused = false
         } catch {
-            print("Error normalizing URL: \(error)")
+            logger.error("Error normalizing URL: \(error)")
             // Silently fail - don't crash the app
-        }
-    }
-
-    private func handleURLChange(_ newValue: String) {
-        // Update input field when URL changes externally
-        if !isURLFieldFocused {
-            urlInput = newValue
         }
     }
 }

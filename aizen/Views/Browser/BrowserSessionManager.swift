@@ -2,9 +2,11 @@ import SwiftUI
 import CoreData
 import WebKit
 import Combine
+import os.log
 
 @MainActor
 class BrowserSessionManager: ObservableObject {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "BrowserSession")
     @Published var sessions: [BrowserSession] = []
     @Published var activeSessionId: UUID?
     @Published var webViews: [UUID: WKWebView] = [:]
@@ -41,7 +43,7 @@ class BrowserSessionManager: ObservableObject {
             do {
                 try viewContext.save()
             } catch {
-                print("Failed to save browser session: \(error)")
+                logger.error("Failed to save browser session: \(error)")
             }
         }
     }
@@ -63,7 +65,7 @@ class BrowserSessionManager: ObservableObject {
                 pageTitle = firstSession.title ?? ""
             }
         } catch {
-            print("Failed to load browser sessions: \(error)")
+            logger.error("Failed to load browser sessions: \(error)")
         }
     }
 
@@ -82,7 +84,7 @@ class BrowserSessionManager: ObservableObject {
             sessions.append(newSession)
             selectSession(newId)
         } catch {
-            print("Failed to create browser session: \(error)")
+            logger.error("Failed to create browser session: \(error)")
         }
     }
 
@@ -131,7 +133,7 @@ class BrowserSessionManager: ObservableObject {
                 }
             }
         } catch {
-            print("Failed to delete browser session: \(error)")
+            logger.error("Failed to delete browser session: \(error)")
             // Re-add to sessions array on failure
             sessions.append(session)
         }
@@ -215,7 +217,7 @@ class BrowserSessionManager: ObservableObject {
         do {
             try viewContext.save()
         } catch {
-            print("Failed to save session URL: \(error)")
+            logger.error("Failed to save session URL: \(error)")
         }
     }
 

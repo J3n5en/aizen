@@ -8,8 +8,10 @@
 
 import Foundation
 import Combine
+import os.log
 
 class GitRepositoryService: ObservableObject {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "GitRepository")
     @Published private(set) var currentStatus: GitStatus = .empty
     @Published private(set) var isOperationPending = false
 
@@ -229,43 +231,14 @@ class GitRepositoryService: ObservableObject {
                 self.currentStatus = status
             }
         } catch {
-            print("Failed to reload Git status: \(error)")
+            logger.error("Failed to reload Git status: \(error)")
         }
     }
 
     nonisolated
     private func loadGitStatus() async throws -> GitStatus {
-        // Get detailed status from statusService
+        // Get detailed status from statusService (includes additions/deletions)
         let detailedStatus = try await statusService.getDetailedStatus(at: worktreePath)
-
-        // Calculate additions and deletions (TODO: move to statusService)
-        var additions = 0
-        var deletions = 0
-
-        // Check if repo has any commits
-        let hasCommits = (try? await statusService.getCurrentBranch(at: worktreePath)) != nil
-
-        if hasCommits {
-            // Use shared executor
-            let diffOutput = try? await executor.executeGit(
-                arguments: ["diff", "--numstat", "HEAD"],
-                at: worktreePath
-            )
-
-            if let diffOutput = diffOutput {
-                for line in diffOutput.components(separatedBy: .newlines) {
-                    let parts = line.split(separator: "\t")
-                    if parts.count >= 2 {
-                        if let add = Int(parts[0]) {
-                            additions += add
-                        }
-                        if let del = Int(parts[1]) {
-                            deletions += del
-                        }
-                    }
-                }
-            }
-        }
 
         return GitStatus(
             stagedFiles: detailedStatus.stagedFiles,
@@ -275,8 +248,8 @@ class GitRepositoryService: ObservableObject {
             currentBranch: detailedStatus.currentBranch ?? "",
             aheadCount: detailedStatus.aheadBy,
             behindCount: detailedStatus.behindBy,
-            additions: additions,
-            deletions: deletions
+            additions: detailedStatus.additions,
+            deletions: detailedStatus.deletions
         )
     }
 }

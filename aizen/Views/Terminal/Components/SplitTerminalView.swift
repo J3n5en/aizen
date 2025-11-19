@@ -41,23 +41,23 @@ struct SplitTerminalView: View {
 
     var body: some View {
         renderNode(layout)
-            .onAppear {
-                saveLayout()
-            }
-            .onChange(of: layout) { _ in
-                saveLayout()
-            }
-            .onChange(of: focusedPaneId) { newValue in
-                session.focusedPaneId = newValue
+            .task(id: "\(layout)-\(focusedPaneId)-\(isSelected)") {
+                // Save layout when it changes
+                if let json = SplitLayoutHelper.encode(layout) {
+                    session.splitLayout = json
+                }
+
+                // Save focused pane when it changes
+                session.focusedPaneId = focusedPaneId
+
                 saveContext()
-            }
-            .onChange(of: isSelected) { newValue in
-                if newValue {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        let currentPane = focusedPaneId
-                        focusedPaneId = ""
-                        focusedPaneId = currentPane
-                    }
+
+                // Refresh focus when tab becomes selected
+                if isSelected {
+                    try? await Task.sleep(nanoseconds: 50_000_000) // 0.05s
+                    let currentPane = focusedPaneId
+                    focusedPaneId = ""
+                    focusedPaneId = currentPane
                 }
             }
             // Only set split actions for the currently selected/visible session
@@ -185,13 +185,6 @@ struct SplitTerminalView: View {
             if let firstPane = layout.allPaneIds().first {
                 focusedPaneId = firstPane
             }
-        }
-    }
-
-    private func saveLayout() {
-        if let json = SplitLayoutHelper.encode(layout) {
-            session.splitLayout = json
-            saveContext()
         }
     }
 

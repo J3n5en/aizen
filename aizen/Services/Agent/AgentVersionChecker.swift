@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 struct AgentVersionInfo: Codable {
     let current: String?
@@ -20,6 +21,7 @@ actor AgentVersionChecker {
     private var versionCache: [String: AgentVersionInfo] = [:]
     private var lastCheckTime: [String: Date] = [:]
     private let cacheExpiration: TimeInterval = 3600 // 1 hour
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "AgentVersion")
 
     private init() {}
 
@@ -120,7 +122,7 @@ actor AgentVersionChecker {
                 return version
             }
         } catch {
-            print("[AgentVersionChecker] Failed to get current npm version for \(package): \(error)")
+            logger.error("Failed to get current npm version for \(package): \(error)")
         }
 
         return nil
@@ -146,16 +148,97 @@ actor AgentVersionChecker {
                 return version
             }
         } catch {
-            print("[AgentVersionChecker] Failed to get latest npm version for \(package): \(error)")
+            logger.error("Failed to get latest npm version for \(package): \(error)")
         }
 
         return nil
     }
 
-    /// Check GitHub release version (placeholder - implement if needed)
+    /// Check GitHub release version
     private func checkGithubVersion(repo: String, agentPath: String?) async -> AgentVersionInfo {
-        // TODO: Implement GitHub release version checking via API
-        return AgentVersionInfo(current: nil, latest: nil, isOutdated: false, updateAvailable: false)
+        // Get current version from binary
+        let currentVersion = await getCurrentBinaryVersion(agentPath: agentPath)
+
+        // Get latest version from GitHub API
+        let latestVersion = await getLatestGithubVersion(repo: repo)
+
+        let isOutdated = compareVersions(current: currentVersion, latest: latestVersion)
+
+        return AgentVersionInfo(
+            current: currentVersion,
+            latest: latestVersion,
+            isOutdated: isOutdated,
+            updateAvailable: isOutdated
+        )
+    }
+
+    /// Get current binary version by executing with --version flag
+    private func getCurrentBinaryVersion(agentPath: String?) async -> String? {
+        guard let agentPath = agentPath else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: agentPath)
+        process.arguments = ["--version"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !output.isEmpty {
+                // Extract version number from output (handles formats like "v1.2.3" or "agent version 1.2.3")
+                return extractVersionNumber(from: output)
+            }
+        } catch {
+            logger.error("Failed to get binary version for \(agentPath): \(error)")
+        }
+
+        return nil
+    }
+
+    /// Get latest GitHub release version via API
+    private func getLatestGithubVersion(repo: String) async -> String? {
+        guard let apiURL = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
+            return nil
+        }
+
+        var request = URLRequest(url: apiURL, timeoutInterval: 30)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return nil
+            }
+
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let tagName = json["tag_name"] as? String {
+                // Remove 'v' prefix if present
+                return tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+            }
+        } catch {
+            logger.error("Failed to get latest GitHub version for \(repo): \(error)")
+        }
+
+        return nil
+    }
+
+    /// Extract version number from version string
+    private func extractVersionNumber(from output: String) -> String? {
+        // Match semantic version pattern (e.g., "1.2.3" or "v1.2.3")
+        let pattern = #"v?(\d+\.\d+\.\d+)"#
+        if let range = output.range(of: pattern, options: .regularExpression),
+           let match = output[range].firstMatch(of: /v?(\d+\.\d+\.\d+)/) {
+            return String(match.1)
+        }
+        return nil
     }
 
     /// Compare semantic versions

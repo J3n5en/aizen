@@ -135,7 +135,7 @@ class AgentSession: ObservableObject, ACPClientDelegate {
                         try await performAuthentication(client: client, authMethodId: savedAuthMethod, workingDir: workingDir)
                         return
                     } catch {
-                        print("[AgentSession] Saved auth method '\(savedAuthMethod)' failed for \(agentName): \(error.localizedDescription)")
+                        logger.error("Saved auth method '\(savedAuthMethod)' failed for \(agentName): \(error.localizedDescription)")
                         addSystemMessage("⚠️ Saved authentication method failed. Please re-authenticate.")
                         // Fall through to show auth dialog
                     }

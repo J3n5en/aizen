@@ -286,18 +286,11 @@ struct AgentListItemView: View {
                 Text(error)
             }
         }
-        .onAppear {
-            Task {
-                await validateAgent()
-                canUpdate = await AgentInstaller.shared.canUpdate(metadata)
-            }
+        .task(id: metadata.executablePath) {
+            // Validate and check for updates when path changes
+            await validateAgent()
+            canUpdate = await AgentInstaller.shared.canUpdate(metadata)
             loadAuthStatus()
-        }
-        .onChange(of: metadata.executablePath) { _ in
-            Task {
-                await validateAgent()
-                canUpdate = await AgentInstaller.shared.canUpdate(metadata)
-            }
         }
         .onDisappear {
             testTask?.cancel()

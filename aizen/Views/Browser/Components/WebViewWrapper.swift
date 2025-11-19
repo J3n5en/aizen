@@ -1,11 +1,13 @@
 import SwiftUI
 import WebKit
+import os.log
 
 // MARK: - WebView Coordinator
 
 class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     var parent: WebViewWrapper
     var lastFailedURL: String?
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "WebView")
 
     init(_ parent: WebViewWrapper) {
         self.parent = parent
@@ -160,6 +162,8 @@ struct WebViewWrapper: NSViewRepresentable {
     let onWebViewCreated: ((WKWebView) -> Void)?
     let onLoadError: ((String) -> Void)?
 
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "WebView")
+
     init(
         url: String,
         canGoBack: Binding<Bool>,
@@ -304,13 +308,13 @@ struct WebViewWrapper: NSViewRepresentable {
 
         // Validate and load URL with error handling
         guard let newURL = URL(string: url) else {
-            print("Invalid URL string: \(url)")
+            Self.logger.error("Invalid URL string: \(url)")
             return
         }
 
         // Additional validation for URL components
         guard newURL.scheme != nil || url.hasPrefix("about:") else {
-            print("URL missing scheme: \(url)")
+            Self.logger.error("URL missing scheme: \(url)")
             return
         }
 

@@ -15,6 +15,8 @@ struct DetailedGitStatus {
     let currentBranch: String?
     let aheadBy: Int
     let behindBy: Int
+    let additions: Int
+    let deletions: Int
 }
 
 actor GitStatusService: GitDomainService {
@@ -125,6 +127,9 @@ actor GitStatusService: GitDomainService {
             }
         }
 
+        // Calculate additions and deletions
+        let (additions, deletions) = await calculateDiffStats(at: path, currentBranch: currentBranch)
+
         return DetailedGitStatus(
             stagedFiles: stagedFiles,
             modifiedFiles: modifiedFiles,
@@ -132,8 +137,42 @@ actor GitStatusService: GitDomainService {
             conflictedFiles: conflictedFiles,
             currentBranch: currentBranch,
             aheadBy: aheadBy,
-            behindBy: behindBy
+            behindBy: behindBy,
+            additions: additions,
+            deletions: deletions
         )
+    }
+
+    private func calculateDiffStats(at path: String, currentBranch: String?) async -> (additions: Int, deletions: Int) {
+        var additions = 0
+        var deletions = 0
+
+        // Check if repo has any commits
+        guard currentBranch != nil else {
+            return (0, 0)
+        }
+
+        // Get diff stats
+        let diffOutput = try? await executor.executeGit(
+            arguments: ["diff", "--numstat", "HEAD"],
+            at: path
+        )
+
+        if let diffOutput = diffOutput {
+            for line in diffOutput.components(separatedBy: .newlines) {
+                let parts = line.split(separator: "\t")
+                if parts.count >= 2 {
+                    if let add = Int(parts[0]) {
+                        additions += add
+                    }
+                    if let del = Int(parts[1]) {
+                        deletions += del
+                    }
+                }
+            }
+        }
+
+        return (additions, deletions)
     }
 
     func getCurrentBranch(at path: String) async throws -> String {

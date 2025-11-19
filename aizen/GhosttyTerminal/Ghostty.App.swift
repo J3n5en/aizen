@@ -90,57 +90,8 @@ extension Ghostty {
                 return
             }
 
-            // Create temp config directory and use Ghostty themes
-            let tempDir = NSTemporaryDirectory()
-            let ghosttyConfigDir = (tempDir as NSString).appendingPathComponent(".config/ghostty")
-            let configFilePath = (ghosttyConfigDir as NSString).appendingPathComponent("config")
-
-            do {
-                try FileManager.default.createDirectory(atPath: ghosttyConfigDir, withIntermediateDirectories: true)
-
-                // Detect shell for integration
-                let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-                let shellName = (shell as NSString).lastPathComponent
-
-                // Create simple config with font settings, shell integration, and theme
-                var configContent = """
-                font-family = \(terminalFontName)
-                font-size = \(Int(terminalFontSize))
-                window-inherit-font-size = false
-                window-padding-balance = true
-                window-padding-x = 0
-                window-padding-y = 0
-                window-padding-color = extend-always
-
-                # Enable shell integration (resources dir auto-detected from app bundle)
-                shell-integration = \(shellName)
-                shell-integration-features = cursor,sudo,title
-
-                theme = \(terminalThemeName)
-
-                # Custom keybinds
-                keybind = shift+enter=text:\\n
-
-                """
-
-                Ghostty.logger.info("Using Ghostty theme: \(self.terminalThemeName)")
-
-                try configContent.write(toFile: configFilePath, atomically: true, encoding: .utf8)
-
-                // Set XDG_CONFIG_HOME to our temp directory
-                // With bundle ID "com.aizen.terminal", Ghostty will look for config at:
-                // ~/Library/Application Support/com.aizen.terminal/config (won't exist)
-                // So it will use our XDG config only
-                setenv("XDG_CONFIG_HOME", (tempDir as NSString).appendingPathComponent(".config"), 1)
-
-                // Load default files - will load our XDG config
-                // Will NOT load user's Ghostty config (com.mitchellh.ghostty) since bundle ID is different
-                ghostty_config_load_default_files(config)
-
-                Ghostty.logger.info("Loaded Aizen terminal settings from \(configFilePath)")
-            } catch {
-                Ghostty.logger.warning("Failed to write config: \(error)")
-            }
+            // Load config from settings
+            loadConfigIntoGhostty(config)
 
             // Finalize config (required before use)
             ghostty_config_finalize(config)
@@ -214,6 +165,35 @@ extension Ghostty {
                 return
             }
 
+            // Load config from settings
+            loadConfigIntoGhostty(config)
+
+            // Finalize config (required before use)
+            ghostty_config_finalize(config)
+
+            // Update the app config
+            ghostty_app_update_config(app, config)
+
+            // Propagate config to all existing surfaces
+            for surfaceRef in activeSurfaces where surfaceRef.isValid {
+                ghostty_surface_update_config(surfaceRef.surface, config)
+            }
+
+            // Clean up invalid surfaces
+            activeSurfaces = activeSurfaces.filter { $0.isValid }
+
+            ghostty_config_free(config)
+
+            // Unset XDG_CONFIG_HOME so it doesn't affect fish/shell config loading
+            unsetenv("XDG_CONFIG_HOME")
+
+            Ghostty.logger.info("Configuration reloaded and propagated to \(self.activeSurfaces.count) surfaces")
+        }
+
+        // MARK: - Private Helpers
+
+        /// Generate and load config content into a ghostty_config_t
+        private func loadConfigIntoGhostty(_ config: ghostty_config_t) {
             // Create temp config directory and use Ghostty themes
             let tempDir = NSTemporaryDirectory()
             let ghosttyConfigDir = (tempDir as NSString).appendingPathComponent(".config/ghostty")
@@ -226,7 +206,7 @@ extension Ghostty {
                 let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
                 let shellName = (shell as NSString).lastPathComponent
 
-                // Create config with updated font settings and theme
+                // Create config with font settings, shell integration, and theme
                 let configContent = """
                 font-family = \(terminalFontName)
                 font-size = \(Int(terminalFontSize))
@@ -247,44 +227,24 @@ extension Ghostty {
 
                 """
 
-                Ghostty.logger.info("Reloading with theme: \(self.terminalThemeName)")
+                Ghostty.logger.info("Loading Ghostty theme: \(self.terminalThemeName)")
 
                 try configContent.write(toFile: configFilePath, atomically: true, encoding: .utf8)
 
-                // Temporarily set XDG_CONFIG_HOME to load our config
-                let tempDir = NSTemporaryDirectory()
+                // Set XDG_CONFIG_HOME to our temp directory
+                // With bundle ID "com.aizen.terminal", Ghostty will look for config at:
+                // ~/Library/Application Support/com.aizen.terminal/config (won't exist)
+                // So it will use our XDG config only
                 setenv("XDG_CONFIG_HOME", (tempDir as NSString).appendingPathComponent(".config"), 1)
 
-                // Load config files - with bundle ID "com.aizen.terminal", won't load user's Ghostty config
+                // Load default files - will load our XDG config
+                // Will NOT load user's Ghostty config (com.mitchellh.ghostty) since bundle ID is different
                 ghostty_config_load_default_files(config)
 
-
-                Ghostty.logger.info("Reloaded config - Font: \(self.terminalFontName) \(Int(self.terminalFontSize))pt, Theme: \(self.terminalThemeName)")
+                Ghostty.logger.info("Loaded Aizen terminal settings - Font: \(self.terminalFontName) \(Int(self.terminalFontSize))pt, Theme: \(self.terminalThemeName)")
             } catch {
-                Ghostty.logger.warning("Failed to write config during reload: \(error)")
+                Ghostty.logger.warning("Failed to write config: \(error)")
             }
-
-            // Finalize config (required before use)
-            ghostty_config_finalize(config)
-
-            // Update the app config
-            ghostty_app_update_config(app, config)
-
-            // Propagate config to all existing surfaces
-            for surfaceRef in activeSurfaces where surfaceRef.isValid {
-                ghostty_surface_update_config(surfaceRef.surface, config)
-            }
-
-            // Clean up invalid surfaces
-            activeSurfaces = activeSurfaces.filter { $0.isValid }
-
-            ghostty_config_free(config)
-            
-            // Unset XDG_CONFIG_HOME so it doesn't affect fish/shell config loading
-            unsetenv("XDG_CONFIG_HOME")
-
-
-            Ghostty.logger.info("Configuration reloaded and propagated to \(self.activeSurfaces.count) surfaces")
         }
 
         // MARK: - Callbacks (macOS)

@@ -7,6 +7,37 @@
 
 import SwiftUI
 
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general = "general"
+    case terminal = "terminal"
+    case editor = "editor"
+    case appearance = "appearance"
+    case agents = "agents"
+    case advanced = "advanced"
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .general: return String(localized: "settings.general.title")
+        case .terminal: return String(localized: "settings.terminal.title")
+        case .editor: return String(localized: "settings.editor.title")
+        case .appearance: return "Appearance"
+        case .agents: return String(localized: "settings.agents.title")
+        case .advanced: return String(localized: "settings.advanced.title")
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .general: return "gear"
+        case .terminal: return "terminal"
+        case .editor: return "doc.text"
+        case .appearance: return "paintpalette"
+        case .agents: return "brain"
+        case .advanced: return "gearshape.2"
+        }
+    }
+}
+
 struct SettingsView: View {
     @AppStorage("defaultEditor") private var defaultEditor = "code"
     @AppStorage("defaultACPAgent") private var defaultACPAgent = "claude"
@@ -17,37 +48,43 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsView(defaultEditor: $defaultEditor)
                 .tabItem {
-                    Label("settings.general.title", systemImage: "gear")
+                    Label(SettingsSection.general.title, systemImage: SettingsSection.general.systemImage)
                 }
-                .tag("general")
+                .tag(SettingsSection.general)
 
             TerminalSettingsView(
                 fontName: $terminalFontName,
                 fontSize: $terminalFontSize
             )
             .tabItem {
-                Label("settings.terminal.title", systemImage: "terminal")
+                Label(SettingsSection.terminal.title, systemImage: SettingsSection.terminal.systemImage)
             }
-            .tag("terminal")
+            .tag(SettingsSection.terminal)
 
             EditorSettingsView()
                 .tabItem {
-                    Label("settings.editor.title", systemImage: "doc.text")
+                    Label(SettingsSection.editor.title, systemImage: SettingsSection.editor.systemImage)
                 }
-                .tag("editor")
+                .tag(SettingsSection.editor)
+
+            AppearanceSettingsView()
+                .tabItem {
+                    Label(SettingsSection.appearance.title, systemImage: SettingsSection.appearance.systemImage)
+                }
+                .tag(SettingsSection.appearance)
 
             AgentsSettingsView(defaultACPAgent: $defaultACPAgent)
                 .tabItem {
-                    Label("settings.agents.title", systemImage: "brain")
+                    Label(SettingsSection.agents.title, systemImage: SettingsSection.agents.systemImage)
                 }
-                .tag("agents")
+                .tag(SettingsSection.agents)
 
             AdvancedSettingsView()
                 .tabItem {
-                    Label("settings.advanced.title", systemImage: "gearshape.2")
+                    Label(SettingsSection.advanced.title, systemImage: SettingsSection.advanced.systemImage)
                 }
-                .tag("advanced")
+                .tag(SettingsSection.advanced)
         }
-        .frame(width: 600, height: 600)
+        .frame(width: 600, height: 500)
     }
 }

@@ -20,13 +20,18 @@ struct WorktreeDetailView: View {
     @StateObject private var viewModel: WorktreeViewModel
 
     @AppStorage("worktreeTabStates") private var worktreeTabStatesData: String = "{}"
+    @AppStorage("showChatTab") private var showChatTab = true
+    @AppStorage("showTerminalTab") private var showTerminalTab = true
+    @AppStorage("showFilesTab") private var showFilesTab = true
+    @AppStorage("showBrowserTab") private var showBrowserTab = true
+    @AppStorage("showOpenInApp") private var showOpenInApp = true
+    @AppStorage("showGitStatus") private var showGitStatus = true
     @State private var selectedTab = "chat"
     @State private var lastOpenedApp: DetectedApp?
     @State private var showingGitSidebar = false
     @State private var sidebarWidth: CGFloat = 350
     @StateObject private var gitRepositoryService: GitRepositoryService
     @State private var gitIndexWatcher: GitIndexWatcher?
-    @State private var gitOperationHandler: GitOperationHandler?
 
     init(worktree: Worktree, repositoryManager: RepositoryManager, onWorktreeDeleted: ((Worktree?) -> Void)? = nil) {
         self.worktree = worktree
@@ -36,58 +41,31 @@ struct WorktreeDetailView: View {
         _gitRepositoryService = StateObject(wrappedValue: GitRepositoryService(worktreePath: worktree.path ?? ""))
     }
 
-    private func ensureGitHandler() -> GitOperationHandler {
-        if let handler = gitOperationHandler {
-            return handler
-        }
-        let handler = GitOperationHandler(
-            gitService: gitRepositoryService,
+    // MARK: - Helper Managers
+
+    private var gitOperations: WorktreeGitOperations {
+        WorktreeGitOperations(
+            gitRepositoryService: gitRepositoryService,
             repositoryManager: repositoryManager,
+            worktree: worktree,
             logger: logger
         )
-        gitOperationHandler = handler
-        return handler
     }
 
-    // MARK: - Tab State Persistence
-
-    private func loadTabState() {
-        guard let worktreeId = worktree.id?.uuidString else { return }
-
-        if let data = worktreeTabStatesData.data(using: .utf8),
-           let tabStates = try? JSONDecoder().decode([String: String].self, from: data),
-           let savedTab = tabStates[worktreeId] {
-            selectedTab = savedTab
-        } else {
-            selectedTab = "chat"
-        }
+    private var sessionManager: WorktreeSessionManager {
+        WorktreeSessionManager(
+            worktree: worktree,
+            viewModel: viewModel,
+            logger: logger
+        )
     }
 
-    private func saveTabState() {
-        guard let worktreeId = worktree.id?.uuidString else { return }
-
-        var tabStates: [String: String] = [:]
-        if let data = worktreeTabStatesData.data(using: .utf8),
-           let existing = try? JSONDecoder().decode([String: String].self, from: data) {
-            tabStates = existing
-        }
-
-        tabStates[worktreeId] = selectedTab
-
-        if let encoded = try? JSONEncoder().encode(tabStates),
-           let jsonString = String(data: encoded, encoding: .utf8) {
-            worktreeTabStatesData = jsonString
-        }
-    }
-
-    var chatSessions: [ChatSession] {
-        let sessions = (worktree.chatSessions as? Set<ChatSession>) ?? []
-        return sessions.sorted { ($0.createdAt ?? Date()) < ($1.createdAt ?? Date()) }
-    }
-
-    var terminalSessions: [TerminalSession] {
-        let sessions = (worktree.terminalSessions as? Set<TerminalSession>) ?? []
-        return sessions.sorted { ($0.createdAt ?? Date()) < ($1.createdAt ?? Date()) }
+    private var tabStateManager: WorktreeTabStateManager {
+        WorktreeTabStateManager(
+            worktree: worktree,
+            tabStatesData: $worktreeTabStatesData,
+            selectedTab: $selectedTab
+        )
     }
 
     var browserSessions: [BrowserSession] {
@@ -96,8 +74,8 @@ struct WorktreeDetailView: View {
     }
 
     var hasActiveSessions: Bool {
-        (selectedTab == "chat" && !chatSessions.isEmpty) ||
-        (selectedTab == "terminal" && !terminalSessions.isEmpty) ||
+        (selectedTab == "chat" && !sessionManager.chatSessions.isEmpty) ||
+        (selectedTab == "terminal" && !sessionManager.terminalSessions.isEmpty) ||
         (selectedTab == "browser" && !browserSessions.isEmpty)
     }
 
@@ -158,12 +136,12 @@ struct WorktreeDetailView: View {
         ToolbarItem(placement: .automatic) {
             SessionTabsScrollView(
                 selectedTab: selectedTab,
-                chatSessions: chatSessions,
-                terminalSessions: terminalSessions,
+                chatSessions: sessionManager.chatSessions,
+                terminalSessions: sessionManager.terminalSessions,
                 selectedChatSessionId: $viewModel.selectedChatSessionId,
                 selectedTerminalSessionId: $viewModel.selectedTerminalSessionId,
-                onCloseChatSession: closeChatSession,
-                onCloseTerminalSession: closeTerminalSession
+                onCloseChatSession: sessionManager.closeChatSession,
+                onCloseTerminalSession: sessionManager.closeTerminalSession
             )
         }
         
@@ -178,7 +156,7 @@ struct WorktreeDetailView: View {
         ToolbarItem(placement: .automatic) {
             if selectedTab == "chat" {
                 Button {
-                    createNewChatSession()
+                    sessionManager.createNewChatSession()
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 11))
@@ -186,7 +164,7 @@ struct WorktreeDetailView: View {
                 .help(String(localized: "worktree.session.newChat"))
             } else {
                 Button {
-                    createNewTerminalSession()
+                    sessionManager.createNewTerminalSession()
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 11))
@@ -199,13 +177,15 @@ struct WorktreeDetailView: View {
 
     @ToolbarContentBuilder
     var appAndGitToolbarItems: some ToolbarContent {
-        ToolbarItem {
-            OpenInAppButton(
-                lastOpenedApp: lastOpenedApp,
-                appDetector: appDetector,
-                onOpenInLastApp: openInLastApp,
-                onOpenInDetectedApp: openInDetectedApp
-            )
+        if showOpenInApp {
+            ToolbarItem {
+                OpenInAppButton(
+                    lastOpenedApp: lastOpenedApp,
+                    appDetector: appDetector,
+                    onOpenInLastApp: openInLastApp,
+                    onOpenInDetectedApp: openInDetectedApp
+                )
+            }
         }
 
         if #available(macOS 26.0, *) {
@@ -216,13 +196,15 @@ struct WorktreeDetailView: View {
             }
         }
 
-        ToolbarItem(placement: .automatic) {
-            if hasGitChanges {
-                GitStatusView(
-                    additions: gitRepositoryService.currentStatus.additions,
-                    deletions: gitRepositoryService.currentStatus.deletions,
-                    untrackedFiles: gitRepositoryService.currentStatus.untrackedFiles.count
-                )
+        if showGitStatus {
+            ToolbarItem(placement: .automatic) {
+                if hasGitChanges {
+                    GitStatusView(
+                        additions: gitRepositoryService.currentStatus.additions,
+                        deletions: gitRepositoryService.currentStatus.deletions,
+                        untrackedFiles: gitRepositoryService.currentStatus.untrackedFiles.count
+                    )
+                }
             }
         }
 
@@ -234,6 +216,17 @@ struct WorktreeDetailView: View {
             }
             .labelStyle(.iconOnly)
             .help("Show Git Changes")
+        }
+    }
+
+    private func validateSelectedTab() {
+        var available: [String] = []
+        if showChatTab { available.append("chat") }
+        if showTerminalTab { available.append("terminal") }
+        if showFilesTab { available.append("files") }
+        if showBrowserTab { available.append("browser") }
+        if !available.contains(selectedTab) {
+            selectedTab = available.first ?? "files"
         }
     }
 
@@ -251,18 +244,18 @@ struct WorktreeDetailView: View {
                             gitStatus: gitRepositoryService.currentStatus,
                             isOperationPending: gitRepositoryService.isOperationPending,
                             selectedDiffFile: viewModel.selectedDiffFile,
-                            onStageFile: stageFile,
-                            onUnstageFile: unstageFile,
-                            onStageAll: stageAllFiles,
-                            onUnstageAll: unstageAllFiles,
-                            onCommit: commitChanges,
-                            onAmendCommit: amendCommit,
-                            onCommitWithSignoff: commitWithSignoff,
-                            onSwitchBranch: switchBranch,
-                            onCreateBranch: createBranch,
-                            onFetch: fetchChanges,
-                            onPull: pullChanges,
-                            onPush: pushChanges,
+                            onStageFile: gitOperations.stageFile,
+                            onUnstageFile: gitOperations.unstageFile,
+                            onStageAll: gitOperations.stageAll,
+                            onUnstageAll: gitOperations.unstageAll,
+                            onCommit: gitOperations.commit,
+                            onAmendCommit: gitOperations.amendCommit,
+                            onCommitWithSignoff: gitOperations.commitWithSignoff,
+                            onSwitchBranch: gitOperations.switchBranch,
+                            onCreateBranch: gitOperations.createBranch,
+                            onFetch: gitOperations.fetch,
+                            onPull: gitOperations.pull,
+                            onPush: gitOperations.push,
                             onFileClick: { file in
                                 viewModel.selectFileForDiff(file)
                             }
@@ -277,13 +270,24 @@ struct WorktreeDetailView: View {
             .navigationTitle(worktree.branch ?? String(localized: "worktree.session.worktree"))
             .toolbarBackground(.visible, for: .windowToolbar)
             .toast()
+            .onAppear {
+                validateSelectedTab()
+            }
             .toolbar {
                 ToolbarItem(placement: .automatic) {
                     Picker(String(localized: "worktree.session.tab"), selection: $selectedTab) {
-                        Label(String(localized: "worktree.session.chat"), systemImage: "message").tag("chat")
-                        Label(String(localized: "worktree.session.terminal"), systemImage: "terminal").tag("terminal")
-                        Label(String(localized: "worktree.session.files"), systemImage: "folder").tag("files")
-                        Label(String(localized: "worktree.session.browser"), systemImage: "globe").tag("browser")
+                        if showChatTab {
+                            Label(String(localized: "worktree.session.chat"), systemImage: "message").tag("chat")
+                        }
+                        if showTerminalTab {
+                            Label(String(localized: "worktree.session.terminal"), systemImage: "terminal").tag("terminal")
+                        }
+                        if showFilesTab {
+                            Label(String(localized: "worktree.session.files"), systemImage: "folder").tag("files")
+                        }
+                        if showBrowserTab {
+                            Label(String(localized: "worktree.session.browser"), systemImage: "globe").tag("browser")
+                        }
                     }
                     .pickerStyle(.segmented)
                 }
@@ -303,20 +307,13 @@ struct WorktreeDetailView: View {
 
                 appAndGitToolbarItems
             }
-            .task {
+            .task(id: worktree.id) {
                 await setupGitMonitoring()
+                tabStateManager.loadTabState()
+                validateSelectedTab()
             }
-            .onAppear {
-                loadTabState()
-            }
-            .onChange(of: worktree.id) { newId in
-                Task {
-                    await setupGitMonitoring()
-                }
-                loadTabState()
-            }
-            .onChange(of: selectedTab) { _ in
-                saveTabState()
+            .task(id: selectedTab) {
+                tabStateManager.saveTabState()
             }
             .onDisappear {
                 gitIndexWatcher?.stopWatching()
@@ -339,65 +336,10 @@ struct WorktreeDetailView: View {
     }
 
 
-    private func closeChatSession(_ session: ChatSession) {
-        guard let context = worktree.managedObjectContext else { return }
-
-        if let id = session.id {
-            ChatSessionManager.shared.removeAgentSession(for: id)
-        }
-
-        if viewModel.selectedChatSessionId == session.id {
-            if let index = chatSessions.firstIndex(where: { $0.id == session.id }) {
-                if index > 0 {
-                    viewModel.selectedChatSessionId = chatSessions[index - 1].id
-                } else if chatSessions.count > 1 {
-                    viewModel.selectedChatSessionId = chatSessions[index + 1].id
-                } else {
-                    viewModel.selectedChatSessionId = nil
-                }
-            }
-        }
-
-        context.delete(session)
-
-        do {
-            try context.save()
-        } catch {
-            logger.error("Failed to delete chat session: \(error.localizedDescription)")
-        }
-    }
-
-    private func closeTerminalSession(_ session: TerminalSession) {
-        guard let context = worktree.managedObjectContext else { return }
-
-        if let id = session.id {
-            TerminalSessionManager.shared.removeAllTerminals(for: id)
-        }
-
-        if viewModel.selectedTerminalSessionId == session.id {
-            if let index = terminalSessions.firstIndex(where: { $0.id == session.id }) {
-                if index > 0 {
-                    viewModel.selectedTerminalSessionId = terminalSessions[index - 1].id
-                } else if terminalSessions.count > 1 {
-                    viewModel.selectedTerminalSessionId = terminalSessions[index + 1].id
-                } else {
-                    viewModel.selectedTerminalSessionId = nil
-                }
-            }
-        }
-
-        context.delete(session)
-
-        do {
-            try context.save()
-        } catch {
-            logger.error("Failed to delete terminal session: \(error.localizedDescription)")
-        }
-    }
+    // MARK: - App Actions
 
     private func openInLastApp() {
         guard let app = lastOpenedApp else {
-            // Open in Finder by default
             if let finder = appDetector.getApps(for: .finder).first {
                 openInDetectedApp(finder)
             }
@@ -410,97 +352,6 @@ struct WorktreeDetailView: View {
         guard let path = worktree.path else { return }
         lastOpenedApp = app
         appDetector.openPath(path, with: app)
-    }
-
-    private func createNewChatSession() {
-        guard let context = worktree.managedObjectContext else { return }
-
-        let session = ChatSession(context: context)
-        session.id = UUID()
-        let defaultAgent = AgentRouter().defaultAgent
-        let displayName = AgentRegistry.shared.getMetadata(for: defaultAgent)?.name ?? defaultAgent.capitalized
-        session.title = displayName
-        session.agentName = defaultAgent
-        session.createdAt = Date()
-        session.worktree = worktree
-
-        do {
-            try context.save()
-            viewModel.selectedChatSessionId = session.id
-        } catch {
-            logger.error("Failed to create chat session: \(error.localizedDescription)")
-        }
-    }
-
-    private func createNewTerminalSession() {
-        guard let context = worktree.managedObjectContext else { return }
-
-        let terminalSessions = (worktree.terminalSessions as? Set<TerminalSession>) ?? []
-
-        let session = TerminalSession(context: context)
-        session.id = UUID()
-        session.title = String(localized: "worktree.session.terminalTitle \(terminalSessions.count + 1)")
-        session.createdAt = Date()
-        session.worktree = worktree
-
-        do {
-            try context.save()
-            logger.info("Created new terminal session with ID: \(session.id?.uuidString ?? "nil")")
-            viewModel.selectedTerminalSessionId = session.id
-            logger.info("Set selectedTerminalSessionId to: \(session.id?.uuidString ?? "nil")")
-        } catch {
-            logger.error("Failed to create terminal session: \(error.localizedDescription)")
-        }
-    }
-
-    // MARK: - Git Operations
-
-    private func stageFile(_ file: String) {
-        ensureGitHandler().stageFile(file)
-    }
-
-    private func unstageFile(_ file: String) {
-        ensureGitHandler().unstageFile(file)
-    }
-
-    private func stageAllFiles(onComplete: @escaping () -> Void) {
-        ensureGitHandler().stageAll(onComplete: onComplete)
-    }
-
-    private func unstageAllFiles() {
-        ensureGitHandler().unstageAll()
-    }
-
-    private func commitChanges(_ message: String) {
-        ensureGitHandler().commit(message)
-    }
-
-    private func amendCommit(_ message: String) {
-        ensureGitHandler().amendCommit(message)
-    }
-
-    private func commitWithSignoff(_ message: String) {
-        ensureGitHandler().commitWithSignoff(message)
-    }
-
-    private func switchBranch(_ branch: String) {
-        ensureGitHandler().switchBranch(branch, repository: worktree.repository)
-    }
-
-    private func createBranch(_ name: String) {
-        ensureGitHandler().createBranch(name, repository: worktree.repository)
-    }
-
-    private func fetchChanges() {
-        ensureGitHandler().fetch(repository: worktree.repository)
-    }
-
-    private func pullChanges() {
-        ensureGitHandler().pull(repository: worktree.repository)
-    }
-
-    private func pushChanges() {
-        ensureGitHandler().push(repository: worktree.repository)
     }
 }
 

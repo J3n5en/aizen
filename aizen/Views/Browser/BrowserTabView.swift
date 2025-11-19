@@ -1,8 +1,10 @@
 import SwiftUI
 import CoreData
 import WebKit
+import os.log
 
 struct BrowserTabView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "BrowserTab")
     let worktree: Worktree
     @Binding var selectedSessionId: UUID?
 
@@ -92,19 +94,23 @@ struct BrowserTabView: View {
                 }
             }
         }
-        .onAppear {
+        .task {
+            // Initialize session if empty
             if manager.sessions.isEmpty {
                 manager.createSession()
             }
 
+            // Sync selection bidirectionally
             if selectedSessionId == nil {
                 selectedSessionId = manager.activeSessionId
-            } else if let sessionId = selectedSessionId {
+            } else if let sessionId = selectedSessionId,
+                      sessionId != manager.activeSessionId {
                 manager.selectSession(sessionId)
             }
         }
-        .onChange(of: manager.activeSessionId) { newValue in
-            selectedSessionId = newValue
+        .task(id: manager.activeSessionId) {
+            // Keep binding synced with manager state
+            selectedSessionId = manager.activeSessionId
         }
     }
 
@@ -372,6 +378,8 @@ struct EmptyTabStateView: View {
     @ObservedObject var manager: BrowserSessionManager
     @State private var urlInput: String = ""
 
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "BrowserTab")
+
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "globe")
@@ -419,7 +427,7 @@ struct EmptyTabStateView: View {
             manager.navigateToURL(normalizedURL)
             urlInput = ""
         } catch {
-            print("Error handling URL submission: \(error)")
+            Self.logger.error("Error handling URL submission: \(error)")
             // Clear input on error
             urlInput = ""
         }

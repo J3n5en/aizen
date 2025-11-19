@@ -21,13 +21,24 @@ struct TerminalTabView: View {
         return sessions.sorted { ($0.createdAt ?? Date()) < ($1.createdAt ?? Date()) }
     }
 
+    // Derive valid selection declaratively
+    private var validatedSelectedSessionId: UUID? {
+        // If current selection is valid, use it
+        if let currentId = selectedSessionId,
+           sessions.contains(where: { $0.id == currentId }) {
+            return currentId
+        }
+        // Otherwise, select first or last session if available
+        return sessions.last?.id ?? sessions.first?.id
+    }
+
     var body: some View {
         if sessions.isEmpty {
             terminalEmptyState
         } else {
             ZStack {
                 ForEach(sessions) { session in
-                    if selectedSessionId == session.id {
+                    if validatedSelectedSessionId == session.id {
                         SplitTerminalView(
                             worktree: worktree,
                             session: session,
@@ -40,19 +51,10 @@ struct TerminalTabView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear {
-                if selectedSessionId == nil {
-                    selectedSessionId = sessions.first?.id
-                }
-            }
-            .onChange(of: sessions.count) { _ in
-                // Validate that selectedSessionId exists in current sessions
-                // If not, select the most recent session
-                if let currentId = selectedSessionId,
-                   !sessions.contains(where: { $0.id == currentId }) {
-                    selectedSessionId = sessions.last?.id
-                } else if selectedSessionId == nil {
-                    selectedSessionId = sessions.last?.id
+            .task {
+                // Sync binding once with validated value
+                if selectedSessionId != validatedSelectedSessionId {
+                    selectedSessionId = validatedSelectedSessionId
                 }
             }
         }

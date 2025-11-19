@@ -19,14 +19,9 @@ struct ChatSessionView: View {
 
     // UI-only state
     @State private var showingAttachmentPicker = false
-    @State private var showingAuthSheet = false
-    @State private var showingCommandAutocomplete = false
     @State private var showingVoiceRecording = false
     @State private var showingPermissionError = false
     @State private var permissionErrorMessage = ""
-    @State private var showingAgentSetupDialog = false
-    @State private var showingAgentPlan = false
-    @State private var showingUpdateSheet = false
 
     init(worktree: Worktree, session: ChatSession, sessionManager: ChatSessionManager, viewContext: NSManagedObjectContext) {
         self.worktree = worktree
@@ -97,7 +92,7 @@ struct ChatSessionView: View {
                             isProcessing: $viewModel.isProcessing,
                             showingVoiceRecording: $showingVoiceRecording,
                             showingAttachmentPicker: $showingAttachmentPicker,
-                            showingCommandAutocomplete: $showingCommandAutocomplete,
+                            showingCommandAutocomplete: $viewModel.showingCommandAutocomplete,
                             showingPermissionError: $showingPermissionError,
                             permissionErrorMessage: $permissionErrorMessage,
                             commandSuggestions: viewModel.commandSuggestions,
@@ -123,68 +118,29 @@ struct ChatSessionView: View {
             viewModel.setupAgentSession()
             NotificationCenter.default.post(name: .chatViewDidAppear, object: nil)
         }
-        .onChange(of: viewModel.selectedAgent) { _ in
-            viewModel.setupAgentSession()
-        }
-        .onChange(of: viewModel.inputText) { newText in
-            viewModel.updateCommandSuggestions(newText)
-            updateCommandAutocompleteVisibility()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cycleModeShortcut)) { _ in
-            viewModel.cycleModeForward()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .interruptAgentShortcut)) { _ in
-            viewModel.cancelCurrentPrompt()
-        }
         .onDisappear {
             NotificationCenter.default.post(name: .chatViewDidDisappear, object: nil)
         }
-        // Direct observers for derived/nested state (fixes Issue 2: triggers on async changes)
-        .onReceive(viewModel.$needsAuth) { needsAuth in
-            if needsAuth {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    showingAuthSheet = true
-                }
-            }
-        }
-        .onReceive(viewModel.$needsSetup) { needsSetup in
-            if needsSetup {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    showingAgentSetupDialog = true
-                }
-            }
-        }
-        .onReceive(viewModel.$needsUpdate) { needsUpdate in
-            if needsUpdate {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    showingUpdateSheet = true
-                }
-            }
-        }
-        .onReceive(viewModel.$hasAgentPlan) { hasPlan in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                showingAgentPlan = hasPlan
-            }
-        }
-        .onReceive(viewModel.$showingPermissionAlert) { showing in
-            // Check if this is a plan request - if so, show as sheet instead of inline
-            if showing, let request = viewModel.currentPermissionRequest, isPlanRequest(request) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    showingAgentPlan = true
-                }
-            }
-        }
-        .sheet(isPresented: $showingAuthSheet) {
+        .sheet(isPresented: Binding(
+            get: { viewModel.needsAuth },
+            set: { if !$0 { viewModel.needsAuth = false } }
+        )) {
             if let agentSession = viewModel.currentAgentSession {
                 AuthenticationSheet(session: agentSession)
             }
         }
-        .sheet(isPresented: $showingAgentSetupDialog) {
+        .sheet(isPresented: Binding(
+            get: { viewModel.needsSetup },
+            set: { if !$0 { viewModel.needsSetup = false } }
+        )) {
             if let agentSession = viewModel.currentAgentSession {
                 AgentSetupDialog(session: agentSession)
             }
         }
-        .sheet(isPresented: $showingUpdateSheet) {
+        .sheet(isPresented: Binding(
+            get: { viewModel.needsUpdate },
+            set: { if !$0 { viewModel.needsUpdate = false } }
+        )) {
             if let versionInfo = viewModel.versionInfo {
                 AgentUpdateSheet(
                     agentName: viewModel.selectedAgent,
@@ -192,7 +148,21 @@ struct ChatSessionView: View {
                 )
             }
         }
-        .sheet(isPresented: $showingAgentPlan) {
+        .sheet(isPresented: Binding(
+            get: {
+                // Show plan sheet if we have a plan request or an active plan
+                if viewModel.showingPermissionAlert,
+                   let request = viewModel.currentPermissionRequest,
+                   isPlanRequest(request) {
+                    return true
+                }
+                return viewModel.hasAgentPlan
+            },
+            set: { if !$0 {
+                viewModel.hasAgentPlan = false
+                viewModel.showingPermissionAlert = false
+            }}
+        )) {
             // Check if this is a plan approval request or plan progress view
             if let request = viewModel.currentPermissionRequest,
                isPlanRequest(request),
@@ -201,12 +171,21 @@ struct ChatSessionView: View {
                 PlanApprovalDialog(
                     session: agentSession,
                     request: request,
-                    isPresented: $showingAgentPlan
+                    isPresented: Binding(
+                        get: { true },
+                        set: { if !$0 { viewModel.showingPermissionAlert = false } }
+                    )
                 )
             } else if let plan = viewModel.currentAgentPlan {
                 // Plan progress - show progress dialog
-                AgentPlanDialog(plan: plan, isPresented: $showingAgentPlan)
-                    .frame(minWidth: 500, minHeight: 400)
+                AgentPlanDialog(
+                    plan: plan,
+                    isPresented: Binding(
+                        get: { true },
+                        set: { if !$0 { viewModel.hasAgentPlan = false } }
+                    )
+                )
+                .frame(minWidth: 500, minHeight: 400)
             }
         }
         .alert(String(localized: "chat.agent.switch.title"), isPresented: $viewModel.showingAgentSwitchWarning) {
@@ -257,11 +236,4 @@ struct ChatSessionView: View {
         }
     }
 
-    // MARK: - Helpers
-
-    private func updateCommandAutocompleteVisibility() {
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
-            showingCommandAutocomplete = !viewModel.commandSuggestions.isEmpty
-        }
-    }
 }

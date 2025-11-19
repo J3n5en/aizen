@@ -10,6 +10,7 @@ import SwiftUI
 import Combine
 import CoreData
 import AppKit
+import os.log
 
 struct FileItem: Identifiable {
     var id: String { path }
@@ -49,6 +50,7 @@ class FileBrowserViewModel: ObservableObject {
     private let worktree: Worktree
     private let viewContext: NSManagedObjectContext
     private var session: FileBrowserSession?
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "FileBrowser")
 
     init(worktree: Worktree, context: NSManagedObjectContext) {
         self.worktree = worktree
@@ -120,7 +122,7 @@ class FileBrowserViewModel: ObservableObject {
         do {
             try viewContext.save()
         } catch {
-            print("Error saving FileBrowserSession: \(error)")
+            logger.error("Error saving FileBrowserSession: \(error)")
         }
     }
 

@@ -8,6 +8,7 @@
 import Foundation
 import AppKit
 import Combine
+import os.log
 
 struct DetectedApp: Identifiable, Equatable {
     let id = UUID()
@@ -33,6 +34,7 @@ class AppDetector: ObservableObject {
     static let shared = AppDetector()
 
     @Published var detectedApps: [DetectedApp] = []
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "AppDetector")
 
     private static let knownApps: [(name: String, bundleId: String, category: AppCategory)] = [
         // Terminals
@@ -106,9 +108,9 @@ class AppDetector: ObservableObject {
             [URL(fileURLWithPath: path)],
             withApplicationAt: app.path,
             configuration: NSWorkspace.OpenConfiguration()
-        ) { _, error in
+        ) { [self] _, error in
             if let error = error {
-                print("Failed to open \(app.name): \(error)")
+                self.logger.error("Failed to open \(app.name): \(error)")
             }
         }
     }

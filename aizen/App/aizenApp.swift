@@ -50,20 +50,8 @@ struct aizenApp: App {
             ContentView(context: persistenceController.container.viewContext)
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
                 .environmentObject(ghosttyApp)
-                .onChange(of: terminalFontName) { _ in
-                    Task { @MainActor in
-                        ghosttyApp.reloadConfig()
-                    }
-                }
-                .onChange(of: terminalFontSize) { _ in
-                    Task { @MainActor in
-                        ghosttyApp.reloadConfig()
-                    }
-                }
-                .onChange(of: terminalThemeName) { _ in
-                    Task { @MainActor in
-                        ghosttyApp.reloadConfig()
-                    }
+                .task(id: "\(terminalFontName)\(terminalFontSize)\(terminalThemeName)") {
+                    ghosttyApp.reloadConfig()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -101,5 +89,7 @@ struct aizenApp: App {
         Settings {
             SettingsView()
         }
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified)
     }
 }
