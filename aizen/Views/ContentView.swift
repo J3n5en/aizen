@@ -70,7 +70,7 @@ struct ContentView: View {
             }
         } detail: {
             // Right panel - worktree details
-            if let worktree = selectedWorktree {
+            if let worktree = selectedWorktree, !worktree.isDeleted {
                 WorktreeDetailView(
                     worktree: worktree,
                     repositoryManager: repositoryManager,
@@ -156,8 +156,15 @@ struct ContentView: View {
         .onChange(of: selectedWorktree) { newValue in
             selectedWorktreeId = newValue?.id?.uuidString
 
-            if let newWorktree = newValue {
+            if let newWorktree = newValue, !newWorktree.isDeleted {
                 previousWorktree = newWorktree
+            } else if newValue?.isDeleted == true {
+                // Worktree was deleted, fall back to primary worktree
+                selectedWorktree = nil
+                if let repository = selectedRepository {
+                    let worktrees = (repository.worktrees as? Set<Worktree>) ?? []
+                    selectedWorktree = worktrees.first(where: { $0.isPrimary && !$0.isDeleted })
+                }
             }
         }
     }

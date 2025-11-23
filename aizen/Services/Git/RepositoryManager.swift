@@ -177,7 +177,10 @@ class RepositoryManager: ObservableObject {
         // Remove worktrees that no longer exist
         for path in existingPaths {
             if let worktree = existingWorktrees.first(where: { $0.path == path }) {
-                viewContext.delete(worktree)
+                // Verify the directory doesn't exist before deleting
+                if !FileManager.default.fileExists(atPath: path) {
+                    viewContext.delete(worktree)
+                }
             }
         }
     }

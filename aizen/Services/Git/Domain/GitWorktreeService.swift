@@ -12,6 +12,7 @@ struct WorktreeInfo {
     let branch: String
     let commit: String
     let isPrimary: Bool
+    let isDetached: Bool
 }
 
 actor GitWorktreeService: GitDomainService {
@@ -96,17 +97,25 @@ actor GitWorktreeService: GitDomainService {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
             if trimmedLine.isEmpty {
                 if let path = currentWorktree["worktree"],
-                   let branch = currentWorktree["branch"],
                    let commit = currentWorktree["HEAD"] {
 
-                    let cleanBranch = branch.replacingOccurrences(of: "refs/heads/", with: "")
+                    let isDetached = currentWorktree["detached"] != nil
+                    let cleanBranch: String
+
+                    if let branch = currentWorktree["branch"] {
+                        cleanBranch = branch.replacingOccurrences(of: "refs/heads/", with: "")
+                    } else {
+                        cleanBranch = "detached at \(String(commit.prefix(7)))"
+                    }
+
                     let isPrimary = path == repositoryPath
 
                     worktrees.append(WorktreeInfo(
                         path: path,
                         branch: cleanBranch,
                         commit: commit,
-                        isPrimary: isPrimary
+                        isPrimary: isPrimary,
+                        isDetached: isDetached
                     ))
                 }
                 currentWorktree.removeAll()
@@ -116,22 +125,32 @@ actor GitWorktreeService: GitDomainService {
             let components = trimmedLine.split(separator: " ", maxSplits: 1).map(String.init)
             if components.count == 2 {
                 currentWorktree[components[0]] = components[1]
+            } else if components.count == 1 && components[0] == "detached" {
+                currentWorktree["detached"] = "true"
             }
         }
 
         // Handle last worktree
         if let path = currentWorktree["worktree"],
-           let branch = currentWorktree["branch"],
            let commit = currentWorktree["HEAD"] {
 
-            let cleanBranch = branch.replacingOccurrences(of: "refs/heads/", with: "")
+            let isDetached = currentWorktree["detached"] != nil
+            let cleanBranch: String
+
+            if let branch = currentWorktree["branch"] {
+                cleanBranch = branch.replacingOccurrences(of: "refs/heads/", with: "")
+            } else {
+                cleanBranch = "detached at \(String(commit.prefix(7)))"
+            }
+
             let isPrimary = path == repositoryPath
 
             worktrees.append(WorktreeInfo(
                 path: path,
                 branch: cleanBranch,
                 commit: commit,
-                isPrimary: isPrimary
+                isPrimary: isPrimary,
+                isDetached: isDetached
             ))
         }
 

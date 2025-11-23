@@ -67,8 +67,16 @@ final class ToastManager: ObservableObject {
     }
 
     @MainActor
-    func showLoading(_ message: String) {
+    func showLoading(_ message: String, timeout: TimeInterval = 30.0) {
         show(message, type: .loading)
+        let toastId = currentToast?.id
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(timeout))
+            if self?.currentToast?.id == toastId {
+                self?.dismiss()
+            }
+        }
     }
 
     @MainActor

@@ -13,6 +13,7 @@ enum GitError: LocalizedError {
     case invalidPath
     case notAGitRepository
     case worktreeNotFound
+    case timeout
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +25,8 @@ enum GitError: LocalizedError {
             return String(localized: "error.git.notRepository")
         case .worktreeNotFound:
             return String(localized: "error.git.worktreeNotFound")
+        case .timeout:
+            return String(localized: "error.git.timeout")
         }
     }
 }
@@ -53,6 +56,9 @@ actor GitCommandExecutor {
 
             var environment = self.getShellEnvironment()
             environment["GIT_PAGER"] = "cat"
+            environment["GIT_TERMINAL_PROMPT"] = "0"
+            environment["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=10"
+            environment["GIT_ASKPASS"] = "echo"
             process.environment = environment
 
             let pipe = Pipe()

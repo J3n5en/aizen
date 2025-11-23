@@ -147,8 +147,11 @@ class GitRepositoryService: ObservableObject {
                 { try await self.remoteService.fetch(at: self.worktreePath) },
                 onSuccess: { [weak self] in
                     // Refresh status after fetch to update ahead/behind counts
-                    self?.reloadStatus()
-                    onSuccess?()
+                    Task { [weak self] in
+                        guard let self = self else { return }
+                        await self.reloadStatusInternal()
+                        onSuccess?()
+                    }
                 },
                 onError: onError
             )
@@ -162,8 +165,11 @@ class GitRepositoryService: ObservableObject {
                 { try await self.remoteService.pull(at: self.worktreePath) },
                 onSuccess: { [weak self] in
                     // Refresh status after pull to update file lists and tracking info
-                    self?.reloadStatus()
-                    onSuccess?()
+                    Task { [weak self] in
+                        guard let self = self else { return }
+                        await self.reloadStatusInternal()
+                        onSuccess?()
+                    }
                 },
                 onError: onError
             )
@@ -177,8 +183,11 @@ class GitRepositoryService: ObservableObject {
                 { try await self.remoteService.push(at: self.worktreePath, setUpstream: setUpstream) },
                 onSuccess: { [weak self] in
                     // Refresh status after push to update ahead/behind counts
-                    self?.reloadStatus()
-                    onSuccess?()
+                    Task { [weak self] in
+                        guard let self = self else { return }
+                        await self.reloadStatusInternal()
+                        onSuccess?()
+                    }
                 },
                 onError: onError
             )
