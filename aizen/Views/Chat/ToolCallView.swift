@@ -291,20 +291,12 @@ struct ContentBlockView: View {
 
     @ViewBuilder
     private func resourceView(for resource: EmbeddedResourceType) -> some View {
-        let uri: String
-        let mimeType: String?
-        let text: String?
         switch resource {
         case .text(let textResource):
-            uri = textResource.uri
-            mimeType = textResource.mimeType
-            text = textResource.text
+            ACPResourceView(uri: textResource.uri, mimeType: textResource.mimeType, text: textResource.text)
         case .blob(let blobResource):
-            uri = blobResource.uri
-            mimeType = blobResource.mimeType
-            text = nil
+            ACPResourceView(uri: blobResource.uri, mimeType: blobResource.mimeType, text: nil)
         }
-        ACPResourceView(uri: uri, mimeType: mimeType, text: text)
     }
 }
 
