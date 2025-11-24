@@ -23,16 +23,18 @@ class RepositoryFileSystemManager {
     /// Opens a Terminal window at the specified path
     /// - Parameter path: The directory path to open in Terminal
     func openInTerminal(_ path: String) {
-        let script = """
-        tell application "Terminal"
-            do script "cd '\(path)'"
-            activate
-        end tell
-        """
+        guard let bundleId = UserDefaults.standard.string(forKey: "defaultTerminalBundleId") else {
+            // No preference set, use system default
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            return
+        }
 
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
+        // Use selected terminal app if configured
+        if let terminal = AppDetector.shared.detectedApps.first(where: { $0.bundleIdentifier == bundleId }) {
+            AppDetector.shared.openPath(path, with: terminal)
+        } else {
+            // Fallback to system default if configured app is not found
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
         }
     }
 
@@ -42,17 +44,36 @@ class RepositoryFileSystemManager {
     /// Uses the default editor from UserDefaults (key: "defaultEditor").
     /// Falls back to Finder if the editor command fails.
     func openInEditor(_ path: String) {
-        let editor = UserDefaults.standard.string(forKey: "defaultEditor") ?? "code"
+        let useCliEditor = UserDefaults.standard.bool(forKey: "useCliEditor")
 
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        task.arguments = [editor, path]
+        // Use CLI command if toggled on
+        if useCliEditor {
+            let editor = UserDefaults.standard.string(forKey: "defaultEditor") ?? "code"
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            task.arguments = [editor, path]
 
-        do {
-            try task.run()
-        } catch {
-            // Fallback to Finder if editor command fails
-            openInFinder(path)
+            do {
+                try task.run()
+            } catch {
+                // Fallback to Finder if editor command fails
+                openInFinder(path)
+            }
+            return
+        }
+
+        guard let bundleId = UserDefaults.standard.string(forKey: "defaultEditorBundleId") else {
+            // No preference set, use system default
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            return
+        }
+
+        // Use selected editor app if configured
+        if let editor = AppDetector.shared.detectedApps.first(where: { $0.bundleIdentifier == bundleId }) {
+            AppDetector.shared.openPath(path, with: editor)
+        } else {
+            // Fallback to system default if configured app is not found
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
         }
     }
 }

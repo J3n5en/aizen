@@ -315,6 +315,44 @@ class RepositoryManager: ObservableObject {
         return try await branchService.mergeBranch(at: targetPath, branch: sourceBranch)
     }
 
+    func switchBranch(_ worktree: Worktree, to branchName: String) async throws {
+        guard let path = worktree.path else {
+            throw GitError.worktreeNotFound
+        }
+
+        let originalBranch = worktree.branch
+        try await branchService.checkoutBranch(at: path, branch: branchName)
+
+        worktree.branch = branchName
+        do {
+            try viewContext.save()
+        } catch {
+            // Rollback on save failure
+            worktree.branch = originalBranch
+            logger.error("Failed to save branch switch: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    func createAndSwitchBranch(_ worktree: Worktree, name: String, from baseBranch: String) async throws {
+        guard let path = worktree.path else {
+            throw GitError.worktreeNotFound
+        }
+
+        let originalBranch = worktree.branch
+        try await branchService.createBranch(at: path, name: name, from: baseBranch)
+
+        worktree.branch = name
+        do {
+            try viewContext.save()
+        } catch {
+            // Rollback on save failure
+            worktree.branch = originalBranch
+            logger.error("Failed to save branch creation: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
     // MARK: - File System Operations
 
     func openInFinder(_ path: String) {

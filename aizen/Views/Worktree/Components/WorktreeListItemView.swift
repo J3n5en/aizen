@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import os.log
 
 struct WorktreeListItemView: View {
     @ObservedObject var worktree: Worktree
@@ -14,6 +15,8 @@ struct WorktreeListItemView: View {
     let allWorktrees: [Worktree]
     @Binding var selectedWorktree: Worktree?
     @ObservedObject var tabStateManager: WorktreeTabStateManager
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "WorktreeListItemView")
 
     @State private var showingDetails = false
     @State private var showingDeleteConfirmation = false
@@ -26,6 +29,10 @@ struct WorktreeListItemView: View {
     @State private var showingMergeConflict = false
     @State private var showingMergeSuccess = false
     @State private var mergeSuccessMessage = ""
+    @State private var availableBranches: [BranchInfo] = []
+    @State private var showingBranchSelector = false
+    @State private var branchSwitchError: String?
+    @State private var selectedBranchForSwitch: BranchInfo?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -132,6 +139,53 @@ struct WorktreeListItemView: View {
                 Label("Pull from", systemImage: "arrow.down.circle")
             }
 
+            Divider()
+
+            Menu {
+                // Show top local branches (excluding current)
+                ForEach(availableBranches.filter { !$0.isRemote && $0.name != worktree.branch }) { branch in
+                    Button {
+                        switchToBranch(branch)
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.caption)
+                            Text(branch.name)
+                        }
+                    }
+                }
+
+                // Show remote branches that can be tracked
+                if !availableBranches.filter({ $0.isRemote }).isEmpty {
+                    Divider()
+
+                    ForEach(availableBranches.filter { $0.isRemote }) { branch in
+                        Button {
+                            switchToBranch(branch)
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.caption)
+                                Text(branch.name)
+                                Text("(remote)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+
+                Button {
+                    showingBranchSelector = true
+                } label: {
+                    Label("Browse or Create Branch...", systemImage: "ellipsis.circle")
+                }
+            } label: {
+                Label("Switch Branch", systemImage: "arrow.triangle.swap")
+            }
+
             if !worktree.isPrimary {
                 Divider()
 
@@ -144,6 +198,25 @@ struct WorktreeListItemView: View {
         }
         .sheet(isPresented: $showingDetails) {
             WorktreeDetailsSheet(worktree: worktree, repositoryManager: repositoryManager)
+        }
+        .sheet(isPresented: $showingBranchSelector) {
+            if let repo = worktree.repository {
+                BranchSelectorView(
+                    repository: repo,
+                    repositoryManager: repositoryManager,
+                    selectedBranch: $selectedBranchForSwitch,
+                    allowCreation: true,
+                    onCreateBranch: { branchName in
+                        createNewBranch(name: branchName)
+                    }
+                )
+            }
+        }
+        .onChange(of: selectedBranchForSwitch) { newBranch in
+            if let branch = newBranch {
+                switchToBranch(branch)
+                selectedBranchForSwitch = nil
+            }
         }
         .alert(hasUnsavedChanges ? String(localized: "worktree.detail.unsavedChangesTitle") : String(localized: "worktree.detail.deleteConfirmTitle"), isPresented: $showingDeleteConfirmation) {
             Button(String(localized: "worktree.create.cancel"), role: .cancel) {}
@@ -193,8 +266,18 @@ struct WorktreeListItemView: View {
                 Text(error)
             }
         }
+        .alert("Branch Switch Error", isPresented: .constant(branchSwitchError != nil)) {
+            Button("OK") {
+                branchSwitchError = nil
+            }
+        } message: {
+            if let error = branchSwitchError {
+                Text(error)
+            }
+        }
         .onAppear {
             loadWorktreeStatuses()
+            loadAvailableBranches()
         }
     }
 
@@ -306,6 +389,88 @@ struct WorktreeListItemView: View {
             } catch {
                 await MainActor.run {
                     mergeErrorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func loadAvailableBranches() {
+        Task {
+            do {
+                guard let repo = worktree.repository else {
+                    logger.warning("Cannot load branches: worktree has no repository")
+                    return
+                }
+                let branches = try await repositoryManager.getBranches(for: repo)
+
+                await MainActor.run {
+                    // Show top 5 local branches + top 3 remote branches
+                    let localBranches = branches
+                        .filter { !$0.isRemote && $0.name != worktree.branch }
+                        .prefix(5)
+
+                    let remoteBranches = branches
+                        .filter { $0.isRemote }
+                        .prefix(3)
+
+                    availableBranches = Array(localBranches) + Array(remoteBranches)
+                }
+            } catch {
+                logger.error("Failed to load available branches: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func switchToBranch(_ branch: BranchInfo) {
+        Task {
+            do {
+                // Handle remote branches by creating local tracking branch
+                if branch.isRemote {
+                    // Extract local branch name (e.g., "origin/feature" -> "feature")
+                    let localName = branch.name.split(separator: "/").dropFirst().joined(separator: "/")
+
+                    // Create and checkout new local branch tracking the remote
+                    try await repositoryManager.createAndSwitchBranch(
+                        worktree,
+                        name: localName,
+                        from: branch.name
+                    )
+                } else {
+                    // Switch to existing local branch
+                    try await repositoryManager.switchBranch(worktree, to: branch.name)
+                }
+
+                await MainActor.run {
+                    loadAvailableBranches()
+                }
+            } catch {
+                await MainActor.run {
+                    branchSwitchError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func createNewBranch(name: String) {
+        Task {
+            do {
+                // Create new branch from current branch
+                guard let currentBranch = worktree.branch else {
+                    throw GitError.worktreeNotFound
+                }
+
+                try await repositoryManager.createAndSwitchBranch(
+                    worktree,
+                    name: name,
+                    from: currentBranch
+                )
+
+                await MainActor.run {
+                    loadAvailableBranches()
+                }
+            } catch {
+                await MainActor.run {
+                    branchSwitchError = error.localizedDescription
                 }
             }
         }
