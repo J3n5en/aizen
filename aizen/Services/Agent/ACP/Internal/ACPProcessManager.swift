@@ -36,7 +36,7 @@ actor ACPProcessManager {
 
     // MARK: - Process Lifecycle
 
-    func launch(agentPath: String, arguments: [String] = []) throws {
+    func launch(agentPath: String, arguments: [String] = [], workingDirectory: String? = nil) throws {
         guard process == nil else {
             // Process already running - this is an invalid state
             throw ACPClientError.invalidResponse
@@ -84,6 +84,13 @@ actor ACPProcessManager {
 
         // Load user's shell environment for full access to their commands
         var environment = ShellEnvironment.loadUserShellEnvironment()
+
+        // Respect requested working directory: set both cwd and PWD/OLDPWD
+        if let workingDirectory, !workingDirectory.isEmpty {
+            environment["PWD"] = workingDirectory
+            environment["OLDPWD"] = workingDirectory
+            proc.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+        }
 
         // Get the directory containing the agent executable (for node, etc.)
         let agentDir = (agentPath as NSString).deletingLastPathComponent

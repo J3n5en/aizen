@@ -76,8 +76,8 @@ actor ACPClient {
         }
     }
 
-    func launch(agentPath: String, arguments: [String] = []) async throws {
-        try await processManager.launch(agentPath: agentPath, arguments: arguments)
+    func launch(agentPath: String, arguments: [String] = [], workingDirectory: String? = nil) async throws {
+        try await processManager.launch(agentPath: agentPath, arguments: arguments, workingDirectory: workingDirectory)
     }
 
     func initialize(

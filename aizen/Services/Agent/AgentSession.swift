@@ -96,8 +96,8 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         // Get launch arguments for this agent
         let launchArgs = AgentRegistry.shared.getAgentLaunchArgs(for: agentName)
 
-        // Launch the agent process
-        try await client.launch(agentPath: agentPath, arguments: launchArgs)
+        // Launch the agent process with correct working directory
+        try await client.launch(agentPath: agentPath, arguments: launchArgs, workingDirectory: workingDir)
 
         // Initialize protocol
         let initResponse = try await client.initialize(
