@@ -19,10 +19,20 @@ class FileSearchViewModel: ObservableObject {
     private let searchService = FileSearchService.shared
     private let worktreePath: String
     private var allResults: [FileSearchIndexResult] = []
-    private var searchTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     init(worktreePath: String) {
         self.worktreePath = worktreePath
+        setupSearchDebounce()
+    }
+
+    private func setupSearchDebounce() {
+        $searchQuery
+            .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.performSearch()
+            }
+            .store(in: &cancellables)
     }
 
     // Index files on appear
@@ -49,27 +59,18 @@ class FileSearchViewModel: ObservableObject {
         }
     }
 
-    // Perform search with debouncing
+    // Perform search (debouncing handled by Combine in init)
     func performSearch() {
-        // Cancel previous search
-        searchTask?.cancel()
-
-        searchTask = Task {
-            // Debounce
-            try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
-
-            guard !Task.isCancelled else { return }
-
+        Task {
             let searchResults = await searchService.search(
                 query: searchQuery,
                 in: allResults,
                 worktreePath: worktreePath
             )
 
-            guard !Task.isCancelled else { return }
-
-            results = Array(mapToDisplayResults(searchResults).prefix(50))
-            selectedIndex = 0
+            // Update results on main thread
+            self.results = Array(mapToDisplayResults(searchResults).prefix(50))
+            self.selectedIndex = 0
         }
     }
 

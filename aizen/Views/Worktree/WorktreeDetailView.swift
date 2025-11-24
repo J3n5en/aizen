@@ -27,6 +27,7 @@ struct WorktreeDetailView: View {
     @AppStorage("showOpenInApp") private var showOpenInApp = true
     @AppStorage("showGitStatus") private var showGitStatus = true
     @AppStorage("zenModeEnabled") private var zenModeEnabled = false
+    @AppStorage("terminalThemeName") private var terminalThemeName = "Catppuccin Mocha"
     @State private var selectedTab = "chat"
     @State private var lastOpenedApp: DetectedApp?
     @State private var showingGitSidebar = false
@@ -85,7 +86,30 @@ struct WorktreeDetailView: View {
         gitRepositoryService.currentStatus.untrackedFiles.count > 0
     }
 
+    private func getTerminalBackgroundColor() -> Color? {
+        guard let resourcePath = Bundle.main.resourcePath else { return nil }
+        let themesPath = (resourcePath as NSString).appendingPathComponent("ghostty/themes")
+        let themeFile = (themesPath as NSString).appendingPathComponent(terminalThemeName)
 
+        guard let content = try? String(contentsOfFile: themeFile, encoding: .utf8) else {
+            return nil
+        }
+
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("background") {
+                let parts = trimmed.split(separator: "=", maxSplits: 1)
+                if parts.count == 2 {
+                    let colorHex = parts[1].trimmingCharacters(in: .whitespaces)
+                    if let color = Color(hex: colorHex) {
+                        return color
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
 
     @ViewBuilder
     var contentView: some View {
@@ -334,6 +358,7 @@ struct WorktreeDetailView: View {
     private var mainContentWithSidebars: some View {
         let content = contentView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(selectedTab == "terminal" ? getTerminalBackgroundColor() : nil)
             .safeAreaInset(edge: .trailing, spacing: 0) {
                 gitSidebarInset
             }

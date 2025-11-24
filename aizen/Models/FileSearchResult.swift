@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct FileSearchResult: Identifiable, Sendable {
+struct FileSearchResult: Identifiable, Sendable, Equatable {
     let id: String
     let name: String
     let path: String

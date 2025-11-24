@@ -196,6 +196,9 @@ struct FileSearchView: View {
     }
 
     private func selectFile(_ result: FileSearchResult) {
+        // Clean up keyboard monitoring immediately before closing
+        removeKeyboardMonitoring()
+
         viewModel.trackFileOpen(result.path)
         onFileSelected(result.path)
         isPresented = false

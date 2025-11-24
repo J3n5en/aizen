@@ -13,15 +13,13 @@ class FileSearchWindowController: NSWindowController {
     private var appDeactivationObserver: NSObjectProtocol?
 
     convenience init(worktreePath: String, onFileSelected: @escaping (String) -> Void) {
-        let window = FileSearchWindow(worktreePath: worktreePath, onFileSelected: onFileSelected)
-        self.init(window: window)
+        let panel = FileSearchPanel(worktreePath: worktreePath, onFileSelected: onFileSelected)
+        self.init(window: panel)
         setupAppObservers()
     }
 
     deinit {
-        if let observer = appDeactivationObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        cleanup()
     }
 
     private func setupAppObservers() {
@@ -35,43 +33,57 @@ class FileSearchWindowController: NSWindowController {
         }
     }
 
-    override func showWindow(_ sender: Any?) {
-        guard let window = window as? FileSearchWindow else { return }
-
-        // Get the main window frame
-        if let mainWindow = NSApp.mainWindow {
-            let mainFrame = mainWindow.frame
-            let windowSize = window.frame.size
-
-            // Center horizontally, position much higher vertically
-            let x = mainFrame.origin.x + (mainFrame.width - windowSize.width) / 2
-            let y = mainFrame.origin.y + mainFrame.height - windowSize.height - 80
-
-            window.setFrameOrigin(NSPoint(x: x, y: y))
-        }
-
-        window.makeKeyAndOrderFront(nil)
-
-        // Force the window to become key and activate it
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKey()
-
-        // Ensure the text field gets focus
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            window.makeFirstResponder(window.contentView)
+    private func cleanup() {
+        if let observer = appDeactivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            appDeactivationObserver = nil
         }
     }
 
+    override func showWindow(_ sender: Any?) {
+        guard let panel = window as? FileSearchPanel else { return }
+
+        // Position on active screen
+        positionPanel(panel)
+
+        // Show panel - NSPanel with becomesKeyOnlyIfNeeded handles focus correctly
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func positionPanel(_ panel: FileSearchPanel) {
+        // Use screen with mouse cursor for better UX
+        let mouseLocation = NSEvent.mouseLocation
+        let targetScreen = NSScreen.screens.first { screen in
+            NSMouseInRect(mouseLocation, screen.frame, false)
+        } ?? NSScreen.main
+
+        guard let screen = targetScreen else { return }
+
+        let screenFrame = screen.visibleFrame
+        let panelFrame = panel.frame
+
+        // Center horizontally, position near top
+        let x = screenFrame.midX - panelFrame.width / 2
+        let y = screenFrame.maxY - panelFrame.height - 100
+
+        // Ensure panel stays on screen
+        let adjustedX = max(screenFrame.minX, min(x, screenFrame.maxX - panelFrame.width))
+        let adjustedY = max(screenFrame.minY, min(y, screenFrame.maxY - panelFrame.height))
+
+        panel.setFrameOrigin(NSPoint(x: adjustedX, y: adjustedY))
+    }
+
     func closeWindow() {
+        cleanup()
         window?.close()
     }
 }
 
-class FileSearchWindow: NSWindow {
+class FileSearchPanel: NSPanel {
     init(worktreePath: String, onFileSelected: @escaping (String) -> Void) {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 70),
-            styleMask: [.borderless],
+            styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -84,7 +96,10 @@ class FileSearchWindow: NSWindow {
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         self.titleVisibility = .hidden
         self.titlebarAppearsTransparent = true
-        self.styleMask.insert(.fullSizeContentView)
+
+        // Critical for NSPanel - proper keyboard focus handling
+        self.becomesKeyOnlyIfNeeded = true
+        self.isFloatingPanel = true
 
         let hostingView = NSHostingView(
             rootView: FileSearchWindowContent(
@@ -115,7 +130,6 @@ struct FileSearchWindowContent: View {
 
     @StateObject private var viewModel: FileSearchViewModel
     @FocusState private var isSearchFocused: Bool
-    @State private var eventMonitor: Any?
 
     init(worktreePath: String, onFileSelected: @escaping (String) -> Void, onClose: @escaping () -> Void) {
         self.worktreePath = worktreePath
@@ -175,28 +189,33 @@ struct FileSearchWindowContent: View {
         .background(Color.clear)
         .compositingGroup()
         .onAppear {
-            // Focus immediately
+            // Single focus call - NSPanel handles keyboard correctly
             isSearchFocused = true
-
-            // Backup focus after a small delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                isSearchFocused = true
-            }
-
-            // Another backup
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                isSearchFocused = true
-            }
-
             viewModel.indexFiles()
-            setupKeyboardMonitoring()
         }
-        .onDisappear {
-            removeKeyboardMonitoring()
-        }
-        .onChange(of: viewModel.searchQuery) { _ in
-            viewModel.performSearch()
+        .onChange(of: viewModel.results) { _ in
             updateWindowHeight()
+        }
+        // Keyboard shortcuts for file search - use hidden buttons for compatibility
+        .background {
+            Group {
+                Button("") { viewModel.moveSelectionDown() }
+                    .keyboardShortcut(.downArrow, modifiers: [])
+
+                Button("") { viewModel.moveSelectionUp() }
+                    .keyboardShortcut(.upArrow, modifiers: [])
+
+                Button("") {
+                    if let result = viewModel.getSelectedResult() {
+                        selectFile(result)
+                    }
+                }
+                .keyboardShortcut(.return, modifiers: [])
+
+                Button("") { onClose() }
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+            .hidden()
         }
     }
 
@@ -296,33 +315,6 @@ struct FileSearchWindowContent: View {
         }
     }
 
-    private func setupKeyboardMonitoring() {
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 125 { // Down arrow
-                viewModel.moveSelectionDown()
-                return nil
-            } else if event.keyCode == 126 { // Up arrow
-                viewModel.moveSelectionUp()
-                return nil
-            } else if event.keyCode == 36 { // Return
-                if let result = viewModel.getSelectedResult() {
-                    selectFile(result)
-                }
-                return nil
-            } else if event.keyCode == 53 { // Escape
-                onClose()
-                return nil
-            }
-            return event
-        }
-    }
-
-    private func removeKeyboardMonitoring() {
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
-        }
-    }
 
     private func selectFile(_ result: FileSearchResult) {
         viewModel.trackFileOpen(result.path)

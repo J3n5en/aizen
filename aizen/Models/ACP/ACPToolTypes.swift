@@ -85,23 +85,27 @@ struct CommandInputSpec: Codable {
 
 // MARK: - Agent Plan
 
-struct PlanEntry: Codable {
-    let content: String
-    let activeForm: String?
-    let status: PlanEntryStatus
-
-    enum CodingKeys: String, CodingKey {
-        case content
-        case activeForm = "active_form"
-        case status
-    }
+enum PlanPriority: String, Codable {
+    case low
+    case medium
+    case high
 }
 
 enum PlanEntryStatus: String, Codable {
     case pending
     case inProgress = "in_progress"
     case completed
-    case cancelled
+}
+
+struct PlanEntry: Codable {
+    let content: String
+    let priority: PlanPriority
+    let status: PlanEntryStatus
+    let _meta: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case content, priority, status, _meta
+    }
 }
 
 struct Plan: Codable {

@@ -105,11 +105,36 @@ struct NewSessionRequest: Codable {
     }
 }
 
+// Type discriminator for MCP servers
+enum MCPServerType: String, Codable {
+    case stdio
+    case http
+    case sse
+}
+
 struct MCPServerConfig: Codable {
+    let type: MCPServerType
     let name: String
-    let command: String
+    let command: String?
     let args: [String]?
-    let env: [String: String]?
+    let env: [EnvVariable]?
+    let url: String?  // For http/sse
+    let headers: [HTTPHeader]?  // For http/sse
+    let _meta: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case type, name, command, args, env, url, headers, _meta
+    }
+}
+
+struct HTTPHeader: Codable {
+    let name: String
+    let value: String
+    let _meta: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case name, value, _meta
+    }
 }
 
 struct NewSessionResponse: Codable {
@@ -281,33 +306,46 @@ struct AuthenticateResponse: Codable {
 
 struct ReadTextFileRequest: Codable {
     let path: String
-    let startLine: Int?
-    let endLine: Int?
+    let line: Int?  // Start line (0-indexed position)
+    let limit: Int?  // Number of lines to read
+    let sessionId: String
+    let _meta: [String: AnyCodable]?
 
     enum CodingKeys: String, CodingKey {
-        case path
-        case startLine = "start_line"
-        case endLine = "end_line"
+        case path, line, limit, sessionId, _meta
     }
 }
 
 struct ReadTextFileResponse: Codable {
     let content: String
-    let totalLines: Int
+    let totalLines: Int?
+    let _meta: [String: AnyCodable]?
 
     enum CodingKeys: String, CodingKey {
         case content
         case totalLines = "total_lines"
+        case _meta
     }
 }
 
 struct WriteTextFileRequest: Codable {
     let path: String
     let content: String
+    let sessionId: String
+    let _meta: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case path, content, sessionId, _meta
+    }
 }
 
 struct WriteTextFileResponse: Codable {
     let success: Bool
+    let _meta: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case success, _meta
+    }
 }
 
 // MARK: - Permission Types
@@ -385,57 +423,145 @@ struct PermissionOutcome: Codable {
 
 // MARK: - Session Update Types
 
-enum SessionUpdateType: String, Codable {
-    case userMessageChunk = "user_message_chunk"
-    case agentMessageChunk = "agent_message_chunk"
-    case agentThoughtChunk = "agent_thought_chunk"
-    case toolCall = "tool_call"
-    case toolCallUpdate = "tool_call_update"
-    case plan = "plan"
-    case availableCommandsUpdate = "available_commands_update"
-    case currentModeUpdate = "current_mode_update"
-}
-
 struct SessionUpdateNotification: Codable {
     let sessionId: SessionId
     let update: SessionUpdate
+    let _meta: [String: AnyCodable]?
 
     enum CodingKeys: String, CodingKey {
-        case sessionId
-        case update
+        case sessionId, update, _meta
     }
 }
 
-struct SessionUpdate: Codable {
-    let sessionUpdate: String
-    let content: AnyCodable? // Can be ContentBlock or array depending on update type
-    let toolCalls: [ToolCall]?
-    let plan: Plan?
-    let availableCommands: [AvailableCommand]?
-    let currentMode: SessionMode?
-
-    // Individual tool call fields (when sessionUpdate is "tool_call" or "tool_call_update")
-    let toolCallId: String?
-    let title: String?
-    let kind: ToolKind?
-    let status: ToolStatus?
-    let locations: [ToolLocation]?
-    let rawInput: AnyCodable?
-    let rawOutput: AnyCodable?
+enum SessionUpdate: Codable {
+    case userMessageChunk(ContentBlock)
+    case agentMessageChunk(ContentBlock)
+    case agentThoughtChunk(ContentBlock)
+    case toolCall(ToolCallUpdate)
+    case toolCallUpdate(ToolCallUpdateDetails)
+    case plan(Plan)
+    case availableCommandsUpdate([AvailableCommand])
+    case currentModeUpdate(String)
 
     enum CodingKeys: String, CodingKey {
         case sessionUpdate
-        case content
-        case toolCalls
-        case plan
-        case availableCommands
-        case currentMode
-        case toolCallId
-        case title
-        case kind
-        case status
-        case locations
-        case rawInput
-        case rawOutput
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let updateType = try container.decode(String.self, forKey: .sessionUpdate)
+
+        switch updateType {
+        case "user_message_chunk":
+            let content = try ContentBlock(from: decoder)
+            self = .userMessageChunk(content)
+        case "agent_message_chunk":
+            let content = try ContentBlock(from: decoder)
+            self = .agentMessageChunk(content)
+        case "agent_thought_chunk":
+            let content = try ContentBlock(from: decoder)
+            self = .agentThoughtChunk(content)
+        case "tool_call":
+            let toolCall = try ToolCallUpdate(from: decoder)
+            self = .toolCall(toolCall)
+        case "tool_call_update":
+            let details = try ToolCallUpdateDetails(from: decoder)
+            self = .toolCallUpdate(details)
+        case "plan":
+            let plan = try Plan(from: decoder)
+            self = .plan(plan)
+        case "available_commands_update":
+            let commands = try decoder.container(keyedBy: AnyCodingKey.self).decode([AvailableCommand].self, forKey: AnyCodingKey(stringValue: "available_commands")!)
+            self = .availableCommandsUpdate(commands)
+        case "current_mode_update":
+            let modeId = try decoder.container(keyedBy: AnyCodingKey.self).decode(String.self, forKey: AnyCodingKey(stringValue: "current_mode_id")!)
+            self = .currentModeUpdate(modeId)
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .sessionUpdate, in: container, debugDescription: "Unknown session update type: \(updateType)")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case .userMessageChunk(let content):
+            try container.encode("user_message_chunk", forKey: .sessionUpdate)
+            try content.encode(to: encoder)
+        case .agentMessageChunk(let content):
+            try container.encode("agent_message_chunk", forKey: .sessionUpdate)
+            try content.encode(to: encoder)
+        case .agentThoughtChunk(let content):
+            try container.encode("agent_thought_chunk", forKey: .sessionUpdate)
+            try content.encode(to: encoder)
+        case .toolCall(let toolCall):
+            try container.encode("tool_call", forKey: .sessionUpdate)
+            try toolCall.encode(to: encoder)
+        case .toolCallUpdate(let details):
+            try container.encode("tool_call_update", forKey: .sessionUpdate)
+            try details.encode(to: encoder)
+        case .plan(let plan):
+            try container.encode("plan", forKey: .sessionUpdate)
+            try plan.encode(to: encoder)
+        case .availableCommandsUpdate(let commands):
+            try container.encode("available_commands_update", forKey: .sessionUpdate)
+            var innerContainer = encoder.container(keyedBy: AnyCodingKey.self)
+            try innerContainer.encode(commands, forKey: AnyCodingKey(stringValue: "available_commands")!)
+        case .currentModeUpdate(let modeId):
+            try container.encode("current_mode_update", forKey: .sessionUpdate)
+            var innerContainer = encoder.container(keyedBy: AnyCodingKey.self)
+            try innerContainer.encode(modeId, forKey: AnyCodingKey(stringValue: "current_mode_id")!)
+        }
+    }
+}
+
+struct ToolCallUpdate: Codable {
+    let toolCallId: String
+    let title: String
+    let kind: ToolKind
+    let status: ToolStatus
+    let content: [ContentBlock]
+    let locations: [ToolLocation]?
+    let rawInput: AnyCodable?
+    let rawOutput: AnyCodable?
+    let _meta: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case toolCallId = "tool_call_id"
+        case title, kind, status, content, locations
+        case rawInput = "raw_input"
+        case rawOutput = "raw_output"
+        case _meta
+    }
+}
+
+struct ToolCallUpdateDetails: Codable {
+    let toolCallId: String
+    let status: ToolStatus?
+    let locations: [ToolLocation]?
+    let rawOutput: AnyCodable?
+    let _meta: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case toolCallId = "tool_call_id"
+        case status, locations
+        case rawOutput = "raw_output"
+        case _meta
+    }
+}
+
+// Helper for encoding arbitrary keys
+private struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
     }
 }

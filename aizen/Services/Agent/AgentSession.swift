@@ -245,26 +245,39 @@ class AgentSession: ObservableObject, ACPClientDelegate {
 
     // MARK: - ACPClientDelegate Methods
 
-    func handleFileReadRequest(_ path: String, startLine: Int?, endLine: Int?) async throws -> ReadTextFileResponse {
-        return try await fileSystemDelegate.handleFileReadRequest(path, startLine: startLine, endLine: endLine)
+    func handleFileReadRequest(_ path: String, sessionId: String, line: Int?, limit: Int?) async throws -> ReadTextFileResponse {
+        return try await fileSystemDelegate.handleFileReadRequest(path, sessionId: sessionId, line: line, limit: limit)
     }
 
-    func handleFileWriteRequest(_ path: String, content: String) async throws -> WriteTextFileResponse {
-        return try await fileSystemDelegate.handleFileWriteRequest(path, content: content)
+    func handleFileWriteRequest(_ path: String, content: String, sessionId: String) async throws -> WriteTextFileResponse {
+        return try await fileSystemDelegate.handleFileWriteRequest(path, content: content, sessionId: sessionId)
     }
 
-    func handleTerminalCreate(command: String, args: [String]?, cwd: String?, env: [String: String]?, outputLimit: Int?) async throws -> CreateTerminalResponse {
+    func handleTerminalCreate(command: String, sessionId: String, args: [String]?, cwd: String?, env: [EnvVariable]?, outputByteLimit: Int?) async throws -> CreateTerminalResponse {
         return try await terminalDelegate.handleTerminalCreate(
             command: command,
+            sessionId: sessionId,
             args: args,
             cwd: cwd,
             env: env,
-            outputLimit: outputLimit
+            outputByteLimit: outputByteLimit
         )
     }
 
-    func handleTerminalOutput(terminalId: TerminalId) async throws -> TerminalOutputResponse {
-        return try await terminalDelegate.handleTerminalOutput(terminalId: terminalId)
+    func handleTerminalOutput(terminalId: TerminalId, sessionId: String) async throws -> TerminalOutputResponse {
+        return try await terminalDelegate.handleTerminalOutput(terminalId: terminalId, sessionId: sessionId)
+    }
+
+    func handleTerminalWaitForExit(terminalId: TerminalId, sessionId: String) async throws -> WaitForExitResponse {
+        return try await terminalDelegate.handleTerminalWaitForExit(terminalId: terminalId, sessionId: sessionId)
+    }
+
+    func handleTerminalKill(terminalId: TerminalId, sessionId: String) async throws -> KillTerminalResponse {
+        return try await terminalDelegate.handleTerminalKill(terminalId: terminalId, sessionId: sessionId)
+    }
+
+    func handleTerminalRelease(terminalId: TerminalId, sessionId: String) async throws -> ReleaseTerminalResponse {
+        return try await terminalDelegate.handleTerminalRelease(terminalId: terminalId, sessionId: sessionId)
     }
 
     func handlePermissionRequest(request: RequestPermissionRequest) async throws -> RequestPermissionResponse {

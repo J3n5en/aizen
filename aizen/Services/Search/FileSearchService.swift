@@ -196,21 +196,30 @@ actor FileSearchService {
     // Fuzzy search with scoring
     func search(query: String, in results: [FileSearchIndexResult], worktreePath: String) async -> [FileSearchIndexResult] {
         guard !query.isEmpty else {
-            // Return recent files when query is empty
-            return getRecentFileResults(for: worktreePath, from: results)
+            // Return recent files when query is empty, or all results if no recent files
+            let recent = getRecentFileResults(for: worktreePath, from: results)
+            return recent.isEmpty ? results : recent
         }
 
         let lowercaseQuery = query.lowercased()
         var scoredResults: [FileSearchIndexResult] = []
 
         for var result in results {
-            let targetName = result.path
+            let fileName = result.path
                 .split(separator: "/")
                 .last
-                .map { String($0).lowercased() } ?? result.path.lowercased()
-            let score = fuzzyMatch(query: lowercaseQuery, target: targetName)
-            if score > 0 {
-                result.matchScore = score
+                .map { String($0).lowercased() } ?? ""
+            let relativePath = result.relativePath.lowercased()
+
+            // Score filename match (higher weight)
+            let fileNameScore = fuzzyMatch(query: lowercaseQuery, target: fileName)
+
+            // Score relative path match (lower weight)
+            let pathScore = fuzzyMatch(query: lowercaseQuery, target: relativePath) * 0.6
+
+            let totalScore = max(fileNameScore, pathScore)
+            if totalScore > 0 {
+                result.matchScore = totalScore
                 scoredResults.append(result)
             }
         }

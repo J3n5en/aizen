@@ -8,10 +8,13 @@
 import Foundation
 
 protocol ACPRequestDelegate: AnyObject {
-    func handleFileReadRequest(_ path: String, startLine: Int?, endLine: Int?) async throws -> ReadTextFileResponse
-    func handleFileWriteRequest(_ path: String, content: String) async throws -> WriteTextFileResponse
-    func handleTerminalCreate(command: String, args: [String]?, cwd: String?, env: [String: String]?, outputLimit: Int?) async throws -> CreateTerminalResponse
-    func handleTerminalOutput(terminalId: TerminalId) async throws -> TerminalOutputResponse
+    func handleFileReadRequest(_ path: String, sessionId: String, line: Int?, limit: Int?) async throws -> ReadTextFileResponse
+    func handleFileWriteRequest(_ path: String, content: String, sessionId: String) async throws -> WriteTextFileResponse
+    func handleTerminalCreate(command: String, sessionId: String, args: [String]?, cwd: String?, env: [EnvVariable]?, outputByteLimit: Int?) async throws -> CreateTerminalResponse
+    func handleTerminalOutput(terminalId: TerminalId, sessionId: String) async throws -> TerminalOutputResponse
+    func handleTerminalWaitForExit(terminalId: TerminalId, sessionId: String) async throws -> WaitForExitResponse
+    func handleTerminalKill(terminalId: TerminalId, sessionId: String) async throws -> KillTerminalResponse
+    func handleTerminalRelease(terminalId: TerminalId, sessionId: String) async throws -> ReleaseTerminalResponse
     func handlePermissionRequest(request: RequestPermissionRequest) async throws -> RequestPermissionResponse
 }
 
@@ -77,8 +80,9 @@ actor ACPRequestRouter {
 
         let response = try await delegate.handleFileReadRequest(
             req.path,
-            startLine: req.startLine,
-            endLine: req.endLine
+            sessionId: req.sessionId,
+            line: req.line,
+            limit: req.limit
         )
 
         let responseData = try encoder.encode(response)
@@ -97,7 +101,7 @@ actor ACPRequestRouter {
         let data = try encoder.encode(params)
         let req = try decoder.decode(WriteTextFileRequest.self, from: data)
 
-        let response = try await delegate.handleFileWriteRequest(req.path, content: req.content)
+        let response = try await delegate.handleFileWriteRequest(req.path, content: req.content, sessionId: req.sessionId)
 
         let responseData = try encoder.encode(response)
         return try decoder.decode(AnyCodable.self, from: responseData)
@@ -117,10 +121,11 @@ actor ACPRequestRouter {
 
         let response = try await delegate.handleTerminalCreate(
             command: req.command,
+            sessionId: req.sessionId,
             args: req.args,
             cwd: req.cwd,
             env: req.env,
-            outputLimit: req.outputLimit
+            outputByteLimit: req.outputByteLimit
         )
 
         let responseData = try encoder.encode(response)
@@ -139,21 +144,17 @@ actor ACPRequestRouter {
         let data = try encoder.encode(params)
         let req = try decoder.decode(TerminalOutputRequest.self, from: data)
 
-        let response = try await delegate.handleTerminalOutput(terminalId: req.terminalId)
+        let response = try await delegate.handleTerminalOutput(terminalId: req.terminalId, sessionId: req.sessionId)
 
         let responseData = try encoder.encode(response)
         return try decoder.decode(AnyCodable.self, from: responseData)
     }
 
-    // MARK: - Terminal Lifecycle Methods (Stub Implementations)
-    // Note: These methods are intentionally stubbed because:
-    // 1. Terminal lifecycle is managed by AgentTerminalDelegate via handleTerminalCreate/handleTerminalOutput
-    // 2. SwiftTerm-based terminals are long-lived and managed externally
-    // 3. The ACP protocol requires these methods but agents rarely call them
-    // 4. Full implementation would require integrating with terminal cleanup lifecycle
-    // TODO: Implement if agents start using terminal/wait_for_exit, terminal/kill, or terminal/release
-
     private func handleTerminalWaitForExit(_ request: JSONRPCRequest) async throws -> AnyCodable {
+        guard let delegate = delegate else {
+            throw ACPClientError.delegateNotSet
+        }
+
         guard let params = request.params else {
             throw ACPClientError.invalidResponse
         }
@@ -161,14 +162,17 @@ actor ACPRequestRouter {
         let data = try encoder.encode(params)
         let req = try decoder.decode(WaitForExitRequest.self, from: data)
 
-        // Stub: Terminal lifecycle managed externally
-        let response = ["terminal_id": req.terminalId.value]
+        let response = try await delegate.handleTerminalWaitForExit(terminalId: req.terminalId, sessionId: req.sessionId)
 
         let responseData = try encoder.encode(response)
         return try decoder.decode(AnyCodable.self, from: responseData)
     }
 
     private func handleTerminalKill(_ request: JSONRPCRequest) async throws -> AnyCodable {
+        guard let delegate = delegate else {
+            throw ACPClientError.delegateNotSet
+        }
+
         guard let params = request.params else {
             throw ACPClientError.invalidResponse
         }
@@ -176,14 +180,17 @@ actor ACPRequestRouter {
         let data = try encoder.encode(params)
         let req = try decoder.decode(KillTerminalRequest.self, from: data)
 
-        // Stub: Terminal lifecycle managed externally via AgentTerminalDelegate.cleanup()
-        let response = ["success": true]
+        let response = try await delegate.handleTerminalKill(terminalId: req.terminalId, sessionId: req.sessionId)
 
         let responseData = try encoder.encode(response)
         return try decoder.decode(AnyCodable.self, from: responseData)
     }
 
     private func handleTerminalRelease(_ request: JSONRPCRequest) async throws -> AnyCodable {
+        guard let delegate = delegate else {
+            throw ACPClientError.delegateNotSet
+        }
+
         guard let params = request.params else {
             throw ACPClientError.invalidResponse
         }
@@ -191,8 +198,7 @@ actor ACPRequestRouter {
         let data = try encoder.encode(params)
         let req = try decoder.decode(ReleaseTerminalRequest.self, from: data)
 
-        // Stub: Terminal lifecycle managed externally
-        let response = ["success": true]
+        let response = try await delegate.handleTerminalRelease(terminalId: req.terminalId, sessionId: req.sessionId)
 
         let responseData = try encoder.encode(response)
         return try decoder.decode(AnyCodable.self, from: responseData)
