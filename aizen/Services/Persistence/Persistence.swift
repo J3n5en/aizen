@@ -90,7 +90,7 @@ struct PersistenceController {
             if count == 0 {
                 let defaultWorkspace = Workspace(context: container.viewContext)
                 defaultWorkspace.id = UUID()
-                defaultWorkspace.name = "Default"
+                defaultWorkspace.name = "Personal"
                 defaultWorkspace.order = 0
 
                 try container.viewContext.save()

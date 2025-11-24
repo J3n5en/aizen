@@ -45,7 +45,6 @@ actor GitCommandExecutor {
 
     /// Execute a git command fully asynchronously without blocking
     func executeGit(arguments: [String], at workingDirectory: String?, timeout: TimeInterval = 30) async throws -> String {
-        print("GitCommandExecutor: executing git \(arguments.joined(separator: " ")) at \(workingDirectory ?? "nil")")
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -62,8 +61,6 @@ actor GitCommandExecutor {
             environment["GIT_ASKPASS"] = "echo"
             process.environment = environment
 
-            print("GitCommandExecutor: process configured, starting timeout timer")
-
             let pipe = Pipe()
             let errorPipe = Pipe()
             process.standardOutput = pipe
@@ -76,29 +73,24 @@ actor GitCommandExecutor {
             let timer = DispatchSource.makeTimerSource(queue: .global())
             timer.schedule(deadline: .now() + timeout)
             timer.setEventHandler {
-                print("GitCommandExecutor: timeout triggered after \(timeout) seconds")
                 resumeLock.lock()
                 defer { resumeLock.unlock() }
 
                 if !hasResumed {
                     hasResumed = true
                     process.terminate()
-                    print("GitCommandExecutor: process terminated due to timeout")
                     continuation.resume(throwing: GitError.timeout)
                 }
                 timer.cancel()
             }
             timer.resume()
-            print("GitCommandExecutor: timeout timer started")
 
             // Set up async termination handler
             process.terminationHandler = { process in
-                print("GitCommandExecutor: process terminated with status \(process.terminationStatus)")
                 resumeLock.lock()
                 defer { resumeLock.unlock() }
 
                 if hasResumed {
-                    print("GitCommandExecutor: already resumed, ignoring termination")
                     return
                 }
                 hasResumed = true
@@ -111,23 +103,17 @@ actor GitCommandExecutor {
                 let stdout = String(data: data, encoding: .utf8) ?? ""
                 let stderr = String(data: errorData, encoding: .utf8) ?? ""
 
-                print("GitCommandExecutor: stdout length: \(stdout.count), stderr length: \(stderr.count)")
-
                 if process.terminationStatus != 0 {
                     let errorMessage = stderr.isEmpty ? String(localized: "error.git.unknownError") : stderr
-                    print("GitCommandExecutor: command failed with error: \(errorMessage)")
                     continuation.resume(throwing: GitError.commandFailed(message: errorMessage))
                 } else {
-                    print("GitCommandExecutor: command succeeded")
                     continuation.resume(returning: stdout)
                 }
             }
 
             do {
                 try process.run()
-                print("GitCommandExecutor: process.run() succeeded")
             } catch {
-                print("GitCommandExecutor: process.run() failed: \(error)")
                 resumeLock.lock()
                 defer { resumeLock.unlock() }
 

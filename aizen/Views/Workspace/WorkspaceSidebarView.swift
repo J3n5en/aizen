@@ -20,7 +20,7 @@ struct WorkspaceSidebarView: View {
 
     @ObservedObject var repositoryManager: RepositoryManager
     @State private var showingWorkspaceSheet = false
-    @State private var showingEditWorkspace = false
+    @State private var showingWorkspaceSwitcher = false
     @State private var workspaceToEdit: Workspace?
     @State private var refreshTimer: Timer?
 
@@ -91,58 +91,23 @@ struct WorkspaceSidebarView: View {
                     .textCase(.uppercase)
                     .padding(.horizontal, 12)
 
-                Menu {
-                    ForEach(workspaces, id: \.id) { workspace in
-                        Menu {
-                            Button {
-                                selectedWorkspace = workspace
-                            } label: {
-                                Label("workspace.switchTo", systemImage: "arrow.right.circle")
-                            }
-
-                            Button {
-                                workspaceToEdit = workspace
-                                showingEditWorkspace = true
-                            } label: {
-                                Label("workspace.edit", systemImage: "pencil")
-                            }
-                        } label: {
-                            HStack {
-                                Circle()
-                                    .fill(colorFromHex(workspace.colorHex ?? "#0000FF"))
-                                    .frame(width: 10, height: 10)
-
-                                Text(workspace.name ?? String(localized: "workspace.untitled"))
-
-                                Spacer()
-
-                                let repoCount = (workspace.repositories as? Set<Repository>)?.count ?? 0
-                                Text("\(repoCount)")
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
-                            }
-                        }
-                    }
-
-                    Divider()
-
-                    Button {
-                        showingWorkspaceSheet = true
-                    } label: {
-                        Label("workspace.new", systemImage: "plus.circle")
-                    }
+                // Current workspace button
+                Button {
+                    showingWorkspaceSwitcher = true
                 } label: {
-                    HStack {
+                    HStack(spacing: 12) {
                         if let workspace = selectedWorkspace {
                             Circle()
                                 .fill(colorFromHex(workspace.colorHex ?? "#0000FF"))
                                 .frame(width: 8, height: 8)
 
                             Text(workspace.name ?? String(localized: "workspace.untitled"))
-                                .font(.title3)
+                                .font(.body)
                                 .fontWeight(.semibold)
+                                .foregroundStyle(Color.primary)
+                                .lineLimit(1)
 
-                            Spacer()
+                            Spacer(minLength: 8)
 
                             let repoCount = (workspace.repositories as? Set<Repository>)?.count ?? 0
                             Text("\(repoCount)")
@@ -151,21 +116,18 @@ struct WorkspaceSidebarView: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(.quaternary, in: Capsule())
-                        }
 
-                        Image(systemName: "chevron.down.circle.fill")
-                            .foregroundStyle(.secondary)
-                            .imageScale(.medium)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .foregroundStyle(.secondary)
+                                .imageScale(.small)
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
                 .padding(.horizontal, 12)
             }
             .padding(.top, 12)
@@ -241,10 +203,15 @@ struct WorkspaceSidebarView: View {
         .sheet(isPresented: $showingWorkspaceSheet) {
             WorkspaceCreateSheet(repositoryManager: repositoryManager)
         }
-        .sheet(isPresented: $showingEditWorkspace) {
-            if let workspace = workspaceToEdit {
-                WorkspaceEditSheet(workspace: workspace, repositoryManager: repositoryManager)
-            }
+        .sheet(isPresented: $showingWorkspaceSwitcher) {
+            WorkspaceSwitcherSheet(
+                repositoryManager: repositoryManager,
+                workspaces: workspaces,
+                selectedWorkspace: $selectedWorkspace
+            )
+        }
+        .sheet(item: $workspaceToEdit) { workspace in
+            WorkspaceEditSheet(workspace: workspace, repositoryManager: repositoryManager)
         }
         .onAppear {
             startPeriodicRefresh()
@@ -334,6 +301,57 @@ struct RepositoryRow: View {
     }
 }
 
+struct WorkspaceRow: View {
+    let workspace: Workspace
+    let isSelected: Bool
+    let isHovered: Bool
+    let colorFromHex: (String) -> Color
+    let onSelect: () -> Void
+    let onEdit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(colorFromHex(workspace.colorHex ?? "#0000FF"))
+                .frame(width: 8, height: 8)
+
+            Text(workspace.name ?? String(localized: "workspace.untitled"))
+                .font(.body)
+                .fontWeight(isSelected ? .semibold : .regular)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            let repoCount = (workspace.repositories as? Set<Repository>)?.count ?? 0
+            Text("\(repoCount)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.quaternary, in: Capsule())
+
+            if isHovered || isSelected {
+                Button {
+                    onEdit()
+                } label: {
+                    Image(systemName: "pencil.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.plain)
+                .help("workspace.edit")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect()
+        }
+    }
+}
 
 #Preview {
     WorkspaceSidebarView(
