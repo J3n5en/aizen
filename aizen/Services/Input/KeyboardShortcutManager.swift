@@ -78,10 +78,6 @@ class KeyboardShortcutManager {
                 // Shift+Tab: Cycle modes
                 NotificationCenter.default.post(name: .cycleModeShortcut, object: nil)
                 return nil
-            } else if event.keyCode == KeyCode.escape {
-                // Escape: Interrupt agent
-                NotificationCenter.default.post(name: .interruptAgentShortcut, object: nil)
-                return nil
             }
 
             return event

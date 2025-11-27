@@ -88,7 +88,7 @@ class GitRepositoryService: ObservableObject {
             guard let self = self else { return }
             await self.executeOperationBackground(
                 { try await self.stagingService.commit(at: self.worktreePath, message: message) },
-                onSuccess: onSuccess,
+                onSuccess: self.makeRefreshingSuccessHandler(original: onSuccess),
                 onError: onError
             )
         }
@@ -99,7 +99,7 @@ class GitRepositoryService: ObservableObject {
             guard let self = self else { return }
             await self.executeOperationBackground(
                 { try await self.stagingService.amendCommit(at: self.worktreePath, message: message) },
-                onSuccess: onSuccess,
+                onSuccess: self.makeRefreshingSuccessHandler(original: onSuccess),
                 onError: onError
             )
         }
@@ -110,7 +110,7 @@ class GitRepositoryService: ObservableObject {
             guard let self = self else { return }
             await self.executeOperationBackground(
                 { try await self.stagingService.commitWithSignoff(at: self.worktreePath, message: message) },
-                onSuccess: onSuccess,
+                onSuccess: self.makeRefreshingSuccessHandler(original: onSuccess),
                 onError: onError
             )
         }
@@ -253,6 +253,22 @@ class GitRepositoryService: ObservableObject {
     }
 
     // MARK: - Private Methods
+
+    private func makeRefreshingSuccessHandler(original: (() -> Void)?) -> () -> Void {
+        return { [weak self] in
+            guard let self = self else {
+                original?()
+                return
+            }
+            Task { [weak self] in
+                guard let self = self else { return }
+                await self.reloadStatusInternal()
+                await MainActor.run {
+                    original?()
+                }
+            }
+        }
+    }
 
     private func executeOperationBackground(_ operation: @escaping () async throws -> Void, onSuccess: (() -> Void)? = nil, onError: ((Error) -> Void)? = nil) async {
         // Set pending on MainActor

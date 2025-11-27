@@ -16,6 +16,7 @@ struct EditorSettingsView: View {
     @AppStorage("editorShowGutter") private var editorShowGutter: Bool = true
     @AppStorage("editorIndentSpaces") private var editorIndentSpaces: Int = 4
     @AppStorage("editorTabBehavior") private var editorTabBehavior: String = "spaces"
+    @AppStorage("showHiddenFiles") private var showHiddenFiles: Bool = false
 
     var availableFonts: [String] {
         NSFontManager.shared
@@ -94,6 +95,14 @@ struct EditorSettingsView: View {
             }
 
             Section {
+                Toggle("Show Hidden Files", isOn: $showHiddenFiles)
+            } header: {
+                Text("File Browser")
+            } footer: {
+                Text("Show dotfiles and hidden folders in the file browser")
+            }
+
+            Section {
                 Button("Reset to Defaults") {
                     editorTheme = "Catppuccin Mocha"
                     editorFontFamily = "Menlo"
@@ -103,6 +112,7 @@ struct EditorSettingsView: View {
                     editorShowGutter = true
                     editorIndentSpaces = 4
                     editorTabBehavior = "spaces"
+                    showHiddenFiles = false
                 }
             }
         }

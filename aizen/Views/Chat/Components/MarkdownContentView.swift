@@ -74,6 +74,8 @@ struct MarkdownRenderedView: View {
                 case .mermaidDiagram(let code):
                     MermaidDiagramView(code: code)
                         .frame(height: 400)
+                case .table(let header, let rows, let alignments):
+                    MarkdownTableView(header: header, rows: rows, alignments: alignments)
                 }
             }
         }
@@ -137,6 +139,14 @@ struct MarkdownRenderedView: View {
             } else if let blockQuote = child as? BlockQuote {
                 let text = renderBlockQuoteContent(blockQuote.children)
                 blocks.append(.blockQuote(text))
+            } else if let table = child as? Markdown.Table {
+                let headerCells = table.head.cells.map { renderInlineContent($0.children) }
+                var bodyRows: [[AttributedString]] = []
+                for row in table.body.rows {
+                    let rowCells = row.cells.map { renderInlineContent($0.children) }
+                    bodyRows.append(Array(rowCells))
+                }
+                blocks.append(.table(header: Array(headerCells), rows: bodyRows, alignments: table.columnAlignments))
             }
         }
 
@@ -249,6 +259,7 @@ enum MarkdownBlock {
     case image(url: String, alt: String?)
     case imageRow([(url: String, alt: String?)])
     case mermaidDiagram(String)
+    case table(header: [AttributedString], rows: [[AttributedString]], alignments: [Markdown.Table.ColumnAlignment?])
 }
 
 // MARK: - Markdown Image View
@@ -343,6 +354,61 @@ struct MarkdownImageView: View {
                     self.isLoading = false
                 }
             }
+        }
+    }
+}
+
+// MARK: - Markdown Table View
+
+struct MarkdownTableView: View {
+    let header: [AttributedString]
+    let rows: [[AttributedString]]
+    let alignments: [Markdown.Table.ColumnAlignment?]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header row
+                HStack(spacing: 0) {
+                    ForEach(Array(header.enumerated()), id: \.offset) { colIndex, cell in
+                        Text(cell)
+                            .fontWeight(.semibold)
+                            .frame(minWidth: 80, alignment: alignment(for: colIndex))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    }
+                }
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+
+                Divider()
+
+                // Body rows
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                    HStack(spacing: 0) {
+                        ForEach(Array(row.enumerated()), id: \.offset) { colIndex, cell in
+                            Text(cell)
+                                .frame(minWidth: 80, alignment: alignment(for: colIndex))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                        }
+                    }
+                    .background(rowIndex % 2 == 1 ? Color(nsColor: .textBackgroundColor).opacity(0.2) : Color.clear)
+                }
+            }
+            .textSelection(.enabled)
+        }
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.1))
+        .cornerRadius(6)
+    }
+
+    private func alignment(for column: Int) -> Alignment {
+        guard column < alignments.count, let align = alignments[column] else {
+            return .leading
+        }
+        switch align {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
         }
     }
 }

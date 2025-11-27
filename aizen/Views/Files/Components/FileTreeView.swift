@@ -69,6 +69,24 @@ struct FileTreeItem: View {
         expandedPaths.contains(item.path)
     }
 
+    private func textColor(for item: FileItem) -> Color {
+        guard let status = item.gitStatus else { return .primary }
+        switch status {
+        case .modified, .mixed:
+            return .orange
+        case .staged, .added:
+            return .green
+        case .untracked:
+            return .accentColor
+        case .deleted:
+            return .red
+        case .conflicted:
+            return .red
+        case .renamed:
+            return .purple
+        }
+    }
+
     private func toggleExpanded() {
         if isExpanded {
             expandedPaths.remove(item.path)
@@ -103,11 +121,13 @@ struct FileTreeItem: View {
 
                 // Icon
                 FileIconView(path: item.path, size: 12)
+                    .opacity(item.isHidden || item.isGitIgnored ? 0.5 : 1.0)
 
                 // Name
                 Text(item.name)
                     .font(.system(size: 12))
-                    .foregroundColor(.primary)
+                    .foregroundColor(textColor(for: item))
+                    .opacity(item.isHidden || item.isGitIgnored ? 0.5 : 1.0)
                     .lineLimit(1)
 
                 Spacer()
