@@ -26,11 +26,12 @@ struct MarkdownRenderedView: View {
     var isStreaming: Bool = false
 
     @State private var cachedBlocks: [MarkdownBlock]?
-    @State private var cachedContent: String = ""
+    @State private var cachedContentHash: Int = 0
 
     private var renderedBlocks: [MarkdownBlock] {
-        // Return cached if content unchanged
-        if let cached = cachedBlocks, cachedContent == content {
+        // Return cached if content hash matches (faster than full string comparison)
+        let contentHash = content.hashValue
+        if let cached = cachedBlocks, cachedContentHash == contentHash {
             return cached
         }
         let document = Document(parsing: content)
@@ -39,51 +40,12 @@ struct MarkdownRenderedView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(renderedBlocks.enumerated()), id: \.offset) { index, block in
-                switch block {
-                case .paragraph(let attributedText):
-                    Text(attributedText)
-                        .textSelection(.enabled)
-                        .opacity(isStreaming && index == renderedBlocks.count - 1 ? 0.9 : 1.0)
-                case .heading(let attributedText, let level):
-                    Text(attributedText)
-                        .font(fontForHeading(level: level))
-                        .fontWeight(.bold)
-                        .textSelection(.enabled)
-                case .codeBlock(let code, let language):
-                    CodeBlockView(code: code, language: language)
-                case .list(let items, let isOrdered):
-                    ForEach(Array(items.enumerated()), id: \.offset) { itemIndex, item in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(isOrdered ? "\(itemIndex + 1)." : "•")
-                                .foregroundStyle(.secondary)
-                            Text(item)
-                                .textSelection(.enabled)
-                        }
-                    }
-                case .blockQuote(let attributedText):
-                    HStack(alignment: .top, spacing: 8) {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.3))
-                            .frame(width: 3)
-                        Text(attributedText)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-                case .image(let url, let alt):
-                    MarkdownImageView(url: url, alt: alt)
-                case .imageRow(let images):
-                    HStack(spacing: 8) {
-                        ForEach(Array(images.enumerated()), id: \.offset) { _, imageInfo in
-                            MarkdownImageView(url: imageInfo.url, alt: imageInfo.alt)
-                        }
-                    }
-                case .mermaidDiagram(let code):
-                    MermaidDiagramView(code: code)
-                        .frame(height: 400)
-                case .table(let header, let rows, let alignments):
-                    MarkdownTableView(header: header, rows: rows, alignments: alignments)
-                }
+            ForEach(renderedBlocks) { block in
+                MarkdownBlockView(
+                    block: block,
+                    isStreaming: isStreaming,
+                    isLast: block.id == renderedBlocks.last?.id
+                )
             }
         }
         .onAppear {
@@ -95,14 +57,16 @@ struct MarkdownRenderedView: View {
     }
 
     private func updateCache() {
-        guard cachedContent != content else { return }
+        let contentHash = content.hashValue
+        guard cachedContentHash != contentHash else { return }
         let document = Document(parsing: content)
         cachedBlocks = convertMarkdown(document)
-        cachedContent = content
+        cachedContentHash = contentHash
     }
 
     private func convertMarkdown(_ document: Document) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
+        var index = 0
 
         for child in document.children {
             if let paragraph = child as? Paragraph {
@@ -128,37 +92,41 @@ struct MarkdownRenderedView: View {
 
                 if !images.isEmpty && !hasText {
                     // Multiple images in same paragraph - render as image row
-                    blocks.append(.imageRow(images.map { image in
-                        if case .image(let url, let alt) = image {
+                    let imageData = images.compactMap { image -> (url: String, alt: String?)? in
+                        if case .imageRow(let items) = image.type, let first = items.first {
+                            return first
+                        }
+                        if case .image(let url, let alt) = image.type {
                             return (url: url, alt: alt)
                         }
-                        return (url: "", alt: nil)
-                    }))
+                        return nil
+                    }
+                    blocks.append(MarkdownBlock(.imageRow(imageData), index: index))
                 } else {
                     let attributedText = renderInlineContent(paragraph.children)
                     if !attributedText.characters.isEmpty {
-                        blocks.append(.paragraph(attributedText))
+                        blocks.append(MarkdownBlock(.paragraph(attributedText), index: index))
                     }
                 }
             } else if let heading = child as? Heading {
                 let attributedText = renderInlineContent(heading.children)
-                blocks.append(.heading(attributedText, level: heading.level))
+                blocks.append(MarkdownBlock(.heading(attributedText, level: heading.level), index: index))
             } else if let codeBlock = child as? CodeBlock {
                 // Check for mermaid diagram
                 if codeBlock.language?.lowercased() == "mermaid" {
-                    blocks.append(.mermaidDiagram(codeBlock.code))
+                    blocks.append(MarkdownBlock(.mermaidDiagram(codeBlock.code), index: index))
                 } else {
-                    blocks.append(.codeBlock(codeBlock.code, language: codeBlock.language))
+                    blocks.append(MarkdownBlock(.codeBlock(codeBlock.code, language: codeBlock.language), index: index))
                 }
             } else if let list = child as? UnorderedList {
                 let items = Array(list.listItems.map { renderInlineContent($0.children) })
-                blocks.append(.list(items, isOrdered: false))
+                blocks.append(MarkdownBlock(.list(items, isOrdered: false), index: index))
             } else if let list = child as? OrderedList {
                 let items = Array(list.listItems.map { renderInlineContent($0.children) })
-                blocks.append(.list(items, isOrdered: true))
+                blocks.append(MarkdownBlock(.list(items, isOrdered: true), index: index))
             } else if let blockQuote = child as? BlockQuote {
                 let text = renderBlockQuoteContent(blockQuote.children)
-                blocks.append(.blockQuote(text))
+                blocks.append(MarkdownBlock(.blockQuote(text), index: index))
             } else if let table = child as? Markdown.Table {
                 let headerCells = table.head.cells.map { renderInlineContent($0.children) }
                 var bodyRows: [[AttributedString]] = []
@@ -166,8 +134,9 @@ struct MarkdownRenderedView: View {
                     let rowCells = row.cells.map { renderInlineContent($0.children) }
                     bodyRows.append(Array(rowCells))
                 }
-                blocks.append(.table(header: Array(headerCells), rows: bodyRows, alignments: table.columnAlignments))
+                blocks.append(MarkdownBlock(.table(header: Array(headerCells), rows: bodyRows, alignments: table.columnAlignments), index: index))
             }
+            index += 1
         }
 
         return blocks
@@ -175,17 +144,20 @@ struct MarkdownRenderedView: View {
 
     private func extractImagesFromParagraph(_ paragraph: Paragraph) -> [MarkdownBlock] {
         var images: [MarkdownBlock] = []
+        var imgIndex = 0
 
         for child in paragraph.children {
             // Direct image
             if let image = child as? Markdown.Image {
-                images.append(.image(url: image.source ?? "", alt: extractImageAlt(image)))
+                images.append(MarkdownBlock(.image(url: image.source ?? "", alt: extractImageAlt(image)), index: imgIndex))
+                imgIndex += 1
             }
             // Image wrapped in link (like badges)
             else if let link = child as? Markdown.Link {
                 for linkChild in link.children {
                     if let image = linkChild as? Markdown.Image {
-                        images.append(.image(url: image.source ?? "", alt: extractImageAlt(image)))
+                        images.append(MarkdownBlock(.image(url: image.source ?? "", alt: extractImageAlt(image)), index: imgIndex))
+                        imgIndex += 1
                     }
                 }
             }
@@ -255,6 +227,51 @@ struct MarkdownRenderedView: View {
 
         return result
     }
+}
+
+// MARK: - Markdown Block View
+
+/// Individual block renderer with stable identity
+struct MarkdownBlockView: View {
+    let block: MarkdownBlock
+    var isStreaming: Bool = false
+    var isLast: Bool = false
+
+    var body: some View {
+        switch block.type {
+        case .paragraph(let attributedText):
+            Text(attributedText)
+                .textSelection(.enabled)
+                .opacity(isStreaming && isLast ? 0.9 : 1.0)
+        case .heading(let attributedText, let level):
+            Text(attributedText)
+                .font(fontForHeading(level: level))
+                .fontWeight(.bold)
+                .textSelection(.enabled)
+        case .codeBlock(let code, let language):
+            CodeBlockView(code: code, language: language)
+        case .list(let items, let isOrdered):
+            MarkdownListView(items: items, isOrdered: isOrdered)
+        case .blockQuote(let attributedText):
+            HStack(alignment: .top, spacing: 8) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(width: 3)
+                Text(attributedText)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        case .image(let url, let alt):
+            MarkdownImageView(url: url, alt: alt)
+        case .imageRow(let images):
+            MarkdownImageRowView(images: images)
+        case .mermaidDiagram(let code):
+            MermaidDiagramView(code: code)
+                .frame(height: 400)
+        case .table(let header, let rows, let alignments):
+            MarkdownTableView(header: header, rows: rows, alignments: alignments)
+        }
+    }
 
     private func fontForHeading(level: Int) -> Font {
         switch level {
@@ -268,9 +285,118 @@ struct MarkdownRenderedView: View {
     }
 }
 
+// MARK: - List Item Wrapper for Stable IDs
+
+struct ListItemWrapper: Identifiable {
+    let id: String
+    let index: Int
+    let text: AttributedString
+
+    init(index: Int, text: AttributedString) {
+        self.index = index
+        self.text = text
+        // Convert AttributedString characters to String for hashing
+        let textPrefix = String(text.characters.prefix(50))
+        self.id = "li-\(index)-\(textPrefix.hashValue)"
+    }
+}
+
+struct MarkdownListView: View {
+    let items: [AttributedString]
+    let isOrdered: Bool
+
+    private var wrappedItems: [ListItemWrapper] {
+        items.enumerated().map { ListItemWrapper(index: $0.offset, text: $0.element) }
+    }
+
+    var body: some View {
+        ForEach(wrappedItems) { item in
+            HStack(alignment: .top, spacing: 8) {
+                Text(isOrdered ? "\(item.index + 1)." : "•")
+                    .foregroundStyle(.secondary)
+                Text(item.text)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+}
+
+// MARK: - Image Row with Stable IDs
+
+struct ImageRowItem: Identifiable {
+    let id: String
+    let url: String
+    let alt: String?
+
+    init(index: Int, url: String, alt: String?) {
+        self.url = url
+        self.alt = alt
+        self.id = "imgrow-item-\(index)-\(url.hashValue)"
+    }
+}
+
+struct MarkdownImageRowView: View {
+    let images: [(url: String, alt: String?)]
+
+    private var wrappedImages: [ImageRowItem] {
+        images.enumerated().map { ImageRowItem(index: $0.offset, url: $0.element.url, alt: $0.element.alt) }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(wrappedImages) { item in
+                MarkdownImageView(url: item.url, alt: item.alt)
+            }
+        }
+    }
+}
+
 // MARK: - Markdown Block Type
 
-enum MarkdownBlock {
+/// Markdown block with stable ID for efficient SwiftUI diffing
+struct MarkdownBlock: Identifiable {
+    let id: String
+    let type: MarkdownBlockType
+
+    init(_ type: MarkdownBlockType, index: Int = 0) {
+        self.type = type
+        self.id = Self.generateId(for: type, index: index)
+    }
+
+    /// Generate stable ID based on content (uses hash for efficiency)
+    private static func generateId(for type: MarkdownBlockType, index: Int) -> String {
+        switch type {
+        case .paragraph(let text):
+            // Use prefix hash for paragraphs to handle streaming updates
+            let contentHash = String(text.characters.prefix(100)).hashValue
+            return "p-\(index)-\(contentHash)"
+        case .heading(let text, let level):
+            let textHash = String(text.characters).hashValue
+            return "h\(level)-\(index)-\(textHash)"
+        case .codeBlock(let code, let lang):
+            // Use prefix hash for code blocks (can be large)
+            let codeHash = String(code.prefix(200)).hashValue
+            return "code-\(index)-\(codeHash)-\(lang ?? "none")"
+        case .list(let items, let ordered):
+            let itemsHash = items.count > 0 ? String(items.first!.characters.prefix(50)).hashValue : 0
+            return "list-\(ordered)-\(index)-\(items.count)-\(itemsHash)"
+        case .blockQuote(let text):
+            let textHash = String(text.characters).hashValue
+            return "quote-\(index)-\(textHash)"
+        case .image(let url, _):
+            return "img-\(index)-\(url.hashValue)"
+        case .imageRow(let images):
+            let firstHash = images.first?.url.hashValue ?? 0
+            return "imgrow-\(index)-\(images.count)-\(firstHash)"
+        case .mermaidDiagram(let code):
+            return "mermaid-\(index)-\(code.hashValue)"
+        case .table(let header, let rows, _):
+            return "table-\(index)-\(header.count)x\(rows.count)"
+        }
+    }
+}
+
+enum MarkdownBlockType {
     case paragraph(AttributedString)
     case heading(AttributedString, level: Int)
     case codeBlock(String, language: String?)
@@ -291,6 +417,7 @@ struct MarkdownImageView: View {
     @State private var image: NSImage?
     @State private var isLoading = true
     @State private var error: String?
+    @State private var loadTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -327,8 +454,17 @@ struct MarkdownImageView: View {
                 .padding()
             }
         }
-        .task {
-            await loadImage()
+        .onAppear {
+            // Start loading only if not already loaded
+            guard loadTask == nil && image == nil else { return }
+            loadTask = Task {
+                await loadImage()
+            }
+        }
+        .onDisappear {
+            // Cancel loading when view disappears (scrolled off-screen)
+            loadTask?.cancel()
+            loadTask = nil
         }
     }
 
@@ -339,15 +475,20 @@ struct MarkdownImageView: View {
             return
         }
 
+        // Check for cancellation before starting
+        guard !Task.isCancelled else { return }
+
         // Check if it's a local file path
         if imageURL.scheme == nil || imageURL.scheme == "file" {
             // Local file
             if let nsImage = NSImage(contentsOfFile: imageURL.path) {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.image = nsImage
                     self.isLoading = false
                 }
             } else {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.error = "File not found"
                     self.isLoading = false
@@ -357,6 +498,7 @@ struct MarkdownImageView: View {
             // Remote URL
             do {
                 let (data, _) = try await URLSession.shared.data(from: imageURL)
+                guard !Task.isCancelled else { return }
                 if let nsImage = NSImage(data: data) {
                     await MainActor.run {
                         self.image = nsImage
@@ -369,6 +511,7 @@ struct MarkdownImageView: View {
                     }
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.error = error.localizedDescription
                     self.isLoading = false
@@ -380,20 +523,53 @@ struct MarkdownImageView: View {
 
 // MARK: - Markdown Table View
 
+struct TableCellWrapper: Identifiable {
+    let id: String
+    let colIndex: Int
+    let text: AttributedString
+
+    init(colIndex: Int, text: AttributedString, rowIndex: Int = -1) {
+        self.colIndex = colIndex
+        self.text = text
+        let textPrefix = String(text.characters.prefix(20))
+        self.id = "cell-\(rowIndex)-\(colIndex)-\(textPrefix.hashValue)"
+    }
+}
+
+struct TableRowWrapper: Identifiable {
+    let id: String
+    let rowIndex: Int
+    let cells: [TableCellWrapper]
+
+    init(rowIndex: Int, cells: [AttributedString]) {
+        self.rowIndex = rowIndex
+        self.cells = cells.enumerated().map { TableCellWrapper(colIndex: $0.offset, text: $0.element, rowIndex: rowIndex) }
+        self.id = "row-\(rowIndex)-\(cells.count)"
+    }
+}
+
 struct MarkdownTableView: View {
     let header: [AttributedString]
     let rows: [[AttributedString]]
     let alignments: [Markdown.Table.ColumnAlignment?]
+
+    private var wrappedHeader: [TableCellWrapper] {
+        header.enumerated().map { TableCellWrapper(colIndex: $0.offset, text: $0.element, rowIndex: -1) }
+    }
+
+    private var wrappedRows: [TableRowWrapper] {
+        rows.enumerated().map { TableRowWrapper(rowIndex: $0.offset, cells: $0.element) }
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 // Header row
                 HStack(spacing: 0) {
-                    ForEach(Array(header.enumerated()), id: \.offset) { colIndex, cell in
-                        Text(cell)
+                    ForEach(wrappedHeader) { cell in
+                        Text(cell.text)
                             .fontWeight(.semibold)
-                            .frame(minWidth: 80, alignment: alignment(for: colIndex))
+                            .frame(minWidth: 80, alignment: alignment(for: cell.colIndex))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                     }
@@ -403,16 +579,16 @@ struct MarkdownTableView: View {
                 Divider()
 
                 // Body rows
-                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                ForEach(wrappedRows) { row in
                     HStack(spacing: 0) {
-                        ForEach(Array(row.enumerated()), id: \.offset) { colIndex, cell in
-                            Text(cell)
-                                .frame(minWidth: 80, alignment: alignment(for: colIndex))
+                        ForEach(row.cells) { cell in
+                            Text(cell.text)
+                                .frame(minWidth: 80, alignment: alignment(for: cell.colIndex))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                         }
                     }
-                    .background(rowIndex % 2 == 1 ? Color(nsColor: .textBackgroundColor).opacity(0.2) : Color.clear)
+                    .background(row.rowIndex % 2 == 1 ? Color(nsColor: .textBackgroundColor).opacity(0.2) : Color.clear)
                 }
             }
             .textSelection(.enabled)

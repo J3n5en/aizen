@@ -17,8 +17,6 @@ struct CodeBlockView: View {
     @State private var highlightedText: AttributedString?
     @AppStorage("editorTheme") private var editorTheme: String = "Catppuccin Mocha"
 
-    private let highlighter = TreeSitterHighlighter()
-
     var body: some View {
       
         
@@ -88,26 +86,25 @@ struct CodeBlockView: View {
     }
 
     private func performHighlight() async {
-        do {
-            let detectedLanguage: CodeLanguage
-            if let lang = language, !lang.isEmpty {
-                detectedLanguage = LanguageDetection.languageFromFence(lang)
-            } else {
-                detectedLanguage = .default
-            }
+        let detectedLanguage: CodeLanguage
+        if let lang = language, !lang.isEmpty {
+            detectedLanguage = LanguageDetection.languageFromFence(lang)
+        } else {
+            detectedLanguage = .default
+        }
 
-            // Load theme
-            let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
+        // Load theme
+        let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
 
-            // Highlight using tree-sitter
-            let attributed = try await highlighter.highlightCode(
-                code,
-                language: detectedLanguage,
-                theme: theme
-            )
+        // Use shared highlighting queue (limits concurrent highlighting, provides caching)
+        if let attributed = await HighlightingQueue.shared.highlight(
+            code: code,
+            language: detectedLanguage,
+            theme: theme
+        ) {
             highlightedText = attributed
-        } catch {
-            // Fallback to plain text on error
+        } else {
+            // Fallback to plain text on error or cancellation
             highlightedText = AttributedString(code)
         }
     }

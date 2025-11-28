@@ -34,14 +34,34 @@ class ChatSessionViewModel: ObservableObject {
     // MARK: - State
 
     @Published var inputText = ""
-    @Published var messages: [MessageItem] = []
-    @Published var toolCalls: [ToolCall] = []
     @Published var isProcessing = false
     @Published var currentAgentSession: AgentSession?
     @Published var currentPermissionRequest: RequestPermissionRequest?
     @Published var attachments: [URL] = []
     @Published var commandSuggestions: [AvailableCommand] = []
     @Published var timelineItems: [TimelineItem] = []
+
+    // Track previous IDs for incremental sync (avoids storing full duplicate arrays)
+    var previousMessageIds: Set<String> = []
+    var previousToolCallIds: Set<String> = []
+
+    // Historical messages loaded from Core Data (separate from live session)
+    var historicalMessages: [MessageItem] = []
+
+    /// Messages - combines historical + live session messages
+    var messages: [MessageItem] {
+        // If we have a live session, use its messages
+        // Historical messages are only shown before session starts
+        if let session = currentAgentSession, session.isActive {
+            return session.messages
+        }
+        return historicalMessages
+    }
+
+    /// Tool calls - derives from AgentSession (no duplicate storage)
+    var toolCalls: [ToolCall] {
+        currentAgentSession?.toolCalls ?? []
+    }
 
     // MARK: - UI State Flags
 
@@ -164,8 +184,9 @@ class ChatSessionViewModel: ObservableObject {
             updateDerivedState(from: newSession)
 
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                messages = newSession.messages
-                toolCalls = newSession.toolCalls
+                // Reset previous IDs and rebuild timeline from new session
+                previousMessageIds = Set(newSession.messages.map { $0.id })
+                previousToolCallIds = Set(newSession.toolCalls.map { $0.id })
                 rebuildTimeline()
             }
 
@@ -225,7 +246,10 @@ class ChatSessionViewModel: ObservableObject {
             sessionManager.removeAgentSession(for: sessionId)
         }
         currentAgentSession = nil
-        messages = []
+        // Clear tracked IDs and timeline (messages/toolCalls are computed from session)
+        previousMessageIds = []
+        previousToolCallIds = []
+        timelineItems = []
 
         setupAgentSession()
         pendingAgentSwitch = nil
@@ -322,10 +346,12 @@ class ChatSessionViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        session.$toolCalls
+        // Observe toolCallsById changes (dictionary-based storage)
+        session.$toolCallsById
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] newToolCalls in
-                guard let self = self else { return }
+            .sink { [weak self] _ in
+                guard let self = self, let session = self.currentAgentSession else { return }
+                let newToolCalls = session.toolCalls
                 self.syncToolCalls(newToolCalls)
                 // Only auto-scroll if user is near bottom
                 if self.isNearBottom {

@@ -18,7 +18,16 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     @Published var sessionId: SessionId?
     @Published var agentName: String
     @Published var workingDirectory: String
-    @Published var toolCalls: [ToolCall] = []
+
+    // Tool calls stored in dictionary for O(1) lookup, with order array for chronological iteration
+    @Published private(set) var toolCallsById: [String: ToolCall] = [:]
+    @Published private(set) var toolCallOrder: [String] = []
+
+    /// Computed property for ordered tool calls array (maintains API compatibility)
+    var toolCalls: [ToolCall] {
+        toolCallOrder.compactMap { toolCallsById[$0] }
+    }
+
     @Published var messages: [MessageItem] = []
     @Published var currentIterationId: String?
     @Published var isActive: Bool = false
@@ -332,6 +341,35 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     func isTerminalRunning(terminalId: String) async -> Bool {
         return await terminalDelegate.isRunning(terminalId: TerminalId(terminalId))
     }
+
+    // MARK: - Tool Call Management (O(1) Dictionary Operations)
+
+    /// Get tool call by ID (O(1) lookup)
+    func getToolCall(id: String) -> ToolCall? {
+        toolCallsById[id]
+    }
+
+    /// Insert or update a tool call (O(1) operation)
+    func upsertToolCall(_ toolCall: ToolCall) {
+        let id = toolCall.toolCallId
+        if toolCallsById[id] == nil {
+            toolCallOrder.append(id)
+        }
+        toolCallsById[id] = toolCall
+    }
+
+    /// Update an existing tool call in place (O(1) operation)
+    func updateToolCallInPlace(id: String, update: (inout ToolCall) -> Void) {
+        guard var toolCall = toolCallsById[id] else { return }
+        update(&toolCall)
+        toolCallsById[id] = toolCall
+    }
+
+    /// Clear all tool calls
+    func clearToolCalls() {
+        toolCallsById.removeAll()
+        toolCallOrder.removeAll()
+    }
 }
 
 // MARK: - Supporting Types
@@ -344,9 +382,9 @@ struct MessageItem: Identifiable, Equatable {
     var toolCalls: [ToolCall] = []
     var contentBlocks: [ContentBlock] = []
     var isComplete: Bool = true
-    var startTime: Date? // When agent started responding (first chunk)
-    var executionTime: TimeInterval? // Time taken to generate response in seconds
-    var requestId: String? // Track which user request this response belongs to
+    var startTime: Date?
+    var executionTime: TimeInterval?
+    var requestId: String?
 
     static func == (lhs: MessageItem, rhs: MessageItem) -> Bool {
         lhs.id == rhs.id &&

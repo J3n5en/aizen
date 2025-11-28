@@ -7,60 +7,109 @@
 
 import Foundation
 import SwiftUI
+import Combine
+
+// MARK: - Timeline Index Storage
+private var timelineIndexKey: UInt8 = 0
 
 extension ChatSessionViewModel {
+    // MARK: - Timeline Index (O(1) Lookup)
+
+    /// Dictionary for O(1) timeline item lookups by ID
+    private var timelineIndex: [String: Int] {
+        get {
+            objc_getAssociatedObject(self, &timelineIndexKey) as? [String: Int] ?? [:]
+        }
+        set {
+            objc_setAssociatedObject(self, &timelineIndexKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+
+    /// Rebuild the timeline index from current items
+    private func rebuildTimelineIndex() {
+        timelineIndex = Dictionary(uniqueKeysWithValues:
+            timelineItems.enumerated().map { ($1.id, $0) })
+    }
+
     // MARK: - Timeline
 
     /// Full rebuild - used only for initial load or major state changes
     func rebuildTimeline() {
         timelineItems = (messages.map { .message($0) } + toolCalls.map { .toolCall($0) })
             .sorted { $0.timestamp < $1.timestamp }
+        rebuildTimelineIndex()
     }
 
     /// Sync messages incrementally - update existing or insert new
     func syncMessages(_ newMessages: [MessageItem]) {
-        let oldIds = Set(messages.map { $0.id })
         let newIds = Set(newMessages.map { $0.id })
+        let addedIds = newIds.subtracting(previousMessageIds)
+        let hasStructuralChanges = !addedIds.isEmpty
 
-        withAnimation(.easeInOut(duration: 0.2)) {
-            // Update existing messages (content may have changed during streaming)
-            for newMsg in newMessages where oldIds.contains(newMsg.id) {
-                if let idx = timelineItems.firstIndex(where: { $0.id == newMsg.id }) {
+        let updateBlock = { [self] in
+            // Update existing messages using O(1) index lookup
+            for newMsg in newMessages where previousMessageIds.contains(newMsg.id) {
+                if let idx = timelineIndex[newMsg.id] {
                     timelineItems[idx] = .message(newMsg)
                 }
             }
 
             // Insert new messages
-            let addedIds = newIds.subtracting(oldIds)
             for newMsg in newMessages where addedIds.contains(newMsg.id) {
                 insertTimelineItem(.message(newMsg))
             }
+
+            // Rebuild index if structure changed
+            if hasStructuralChanges {
+                rebuildTimelineIndex()
+            }
         }
 
-        messages = newMessages
+        // Only animate structural changes (new items), not content updates
+        if hasStructuralChanges {
+            withAnimation(.easeInOut(duration: 0.2)) { updateBlock() }
+        } else {
+            updateBlock()
+        }
+
+        // Update tracked IDs for next sync
+        previousMessageIds = newIds
     }
 
     /// Sync tool calls incrementally - update existing or insert new
     func syncToolCalls(_ newToolCalls: [ToolCall]) {
-        let oldIds = Set(toolCalls.map { $0.id })
         let newIds = Set(newToolCalls.map { $0.id })
+        let addedIds = newIds.subtracting(previousToolCallIds)
+        let hasStructuralChanges = !addedIds.isEmpty
 
-        withAnimation(.easeInOut(duration: 0.2)) {
-            // Update existing tool calls (status/content may change)
-            for newCall in newToolCalls where oldIds.contains(newCall.id) {
-                if let idx = timelineItems.firstIndex(where: { $0.id == newCall.id }) {
+        let updateBlock = { [self] in
+            // Update existing tool calls using O(1) index lookup
+            for newCall in newToolCalls where previousToolCallIds.contains(newCall.id) {
+                if let idx = timelineIndex[newCall.id] {
                     timelineItems[idx] = .toolCall(newCall)
                 }
             }
 
             // Insert new tool calls
-            let addedIds = newIds.subtracting(oldIds)
             for newCall in newToolCalls where addedIds.contains(newCall.id) {
                 insertTimelineItem(.toolCall(newCall))
             }
+
+            // Rebuild index if structure changed
+            if hasStructuralChanges {
+                rebuildTimelineIndex()
+            }
         }
 
-        toolCalls = newToolCalls
+        // Only animate structural changes (new items), not content updates
+        if hasStructuralChanges {
+            withAnimation(.easeInOut(duration: 0.2)) { updateBlock() }
+        } else {
+            updateBlock()
+        }
+
+        // Update tracked IDs for next sync
+        previousToolCallIds = newIds
     }
 
     /// Insert timeline item maintaining sorted order by timestamp

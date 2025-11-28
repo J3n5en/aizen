@@ -72,8 +72,8 @@ extension AgentSession {
                 updateToolCalls([toolCall])
             case .toolCallUpdate(let details):
                 let toolCallId = details.toolCallId
-                if let index = toolCalls.firstIndex(where: { $0.toolCallId == toolCallId }) {
-                    var updated = toolCalls[index]
+                // O(1) dictionary lookup instead of O(n) array search
+                updateToolCallInPlace(id: toolCallId) { updated in
                     updated.status = details.status ?? updated.status
                     updated.locations = details.locations ?? updated.locations
                     updated.kind = details.kind ?? updated.kind
@@ -86,12 +86,11 @@ extension AgentSession {
                         let merged = coalesceAdjacentTextBlocks(updated.content + newContent)
                         updated.content = merged
                     }
-                    toolCalls[index] = updated
+                }
 
-                    // Clean up activeTaskIds when Task completes
-                    if details.status == .completed || details.status == .failed {
-                        activeTaskIds.removeAll { $0 == toolCallId }
-                    }
+                // Clean up activeTaskIds when Task completes
+                if details.status == .completed || details.status == .failed {
+                    activeTaskIds.removeAll { $0 == toolCallId }
                 }
             case .agentMessageChunk(let block):
                 currentThought = nil
@@ -101,6 +100,7 @@ extension AgentSession {
                 if let lastMessage = messages.last,
                    lastMessage.role == .agent,
                    !lastMessage.isComplete {
+                    // Create new struct with appended content
                     let newContent = lastMessage.content + text
                     messages[messages.count - 1] = MessageItem(
                         id: lastMessage.id,
@@ -142,29 +142,30 @@ extension AgentSession {
         }
     }
 
-    /// Update tool calls with new information
+    /// Update tool calls with new information (O(1) dictionary operations)
     func updateToolCalls(_ newToolCalls: [ToolCall]) {
         for newCall in newToolCalls {
-            if let index = toolCalls.firstIndex(where: { $0.toolCallId == newCall.toolCallId }) {
+            let id = newCall.toolCallId
+            if let existing = getToolCall(id: id) {
                 // Merge content instead of replacing entirely
-                let existingContent = toolCalls[index].content
-                let mergedContent = coalesceAdjacentTextBlocks(existingContent + newCall.content)
+                let mergedContent = coalesceAdjacentTextBlocks(existing.content + newCall.content)
                 var updated = ToolCall(
-                    toolCallId: newCall.toolCallId,
-                    title: cleanTitle(newCall.title).isEmpty ? toolCalls[index].title : cleanTitle(newCall.title),
+                    toolCallId: id,
+                    title: cleanTitle(newCall.title).isEmpty ? existing.title : cleanTitle(newCall.title),
                     kind: newCall.kind,
                     status: newCall.status,
                     content: mergedContent,
-                    locations: newCall.locations ?? toolCalls[index].locations,
-                    rawInput: newCall.rawInput ?? toolCalls[index].rawInput,
-                    rawOutput: newCall.rawOutput ?? toolCalls[index].rawOutput,
-                    timestamp: toolCalls[index].timestamp
+                    locations: newCall.locations ?? existing.locations,
+                    rawInput: newCall.rawInput ?? existing.rawInput,
+                    rawOutput: newCall.rawOutput ?? existing.rawOutput,
+                    timestamp: existing.timestamp
                 )
-                updated.iterationId = toolCalls[index].iterationId
-                updated.parentToolCallId = toolCalls[index].parentToolCallId ?? newCall.parentToolCallId
-                toolCalls[index] = updated
+                updated.iterationId = existing.iterationId
+                updated.parentToolCallId = existing.parentToolCallId ?? newCall.parentToolCallId
+                upsertToolCall(updated)
             } else {
-                toolCalls.append(newCall)
+                // New tool call - add to dictionary and order
+                upsertToolCall(newCall)
             }
         }
     }

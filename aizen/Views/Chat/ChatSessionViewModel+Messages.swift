@@ -40,15 +40,12 @@ extension ChatSessionViewModel {
                 self.messageHandler.saveMessage(content: messageText, role: "user", agentName: self.selectedAgent)
                 self.scrollToBottom()
             } catch {
-                let errorMessage = MessageItem(
-                    id: UUID().uuidString,
-                    role: .system,
-                    content: String(localized: "chat.error.prefix \(error.localizedDescription)"),
-                    timestamp: Date()
+                // Add error to AgentSession (messages are derived from session)
+                self.currentAgentSession?.addSystemMessage(
+                    String(localized: "chat.error.prefix \(error.localizedDescription)")
                 )
 
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    self.messages.append(errorMessage)
                     self.rebuildTimeline()
                 }
 
@@ -83,7 +80,8 @@ extension ChatSessionViewModel {
         }
 
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            messages = loadedMessages
+            historicalMessages = loadedMessages
+            previousMessageIds = Set(loadedMessages.map { $0.id })
             rebuildTimeline()
         }
 
