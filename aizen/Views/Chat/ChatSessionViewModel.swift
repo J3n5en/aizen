@@ -62,6 +62,7 @@ class ChatSessionViewModel: ObservableObject {
     // MARK: - Internal State
 
     var scrollProxy: ScrollViewProxy?
+    @Published var isNearBottom: Bool = true
     private var cancellables = Set<AnyCancellable>()
     private var notificationCancellables = Set<AnyCancellable>()
     let logger = Logger.forCategory("ChatSession")
@@ -83,6 +84,28 @@ class ChatSessionViewModel: ObservableObject {
 
     var isSessionReady: Bool {
         currentAgentSession?.isActive == true && !needsAuth
+    }
+    
+    // Computed bindings for sheet presentation (prevents recreation on every render)
+    var needsAuthBinding: Binding<Bool> {
+        Binding(
+            get: { self.needsAuth },
+            set: { if !$0 { self.needsAuth = false } }
+        )
+    }
+    
+    var needsSetupBinding: Binding<Bool> {
+        Binding(
+            get: { self.needsSetup },
+            set: { if !$0 { self.needsSetup = false } }
+        )
+    }
+    
+    var needsUpdateBinding: Binding<Bool> {
+        Binding(
+            get: { self.needsUpdate },
+            set: { if !$0 { self.needsUpdate = false } }
+        )
     }
 
     // MARK: - Initialization
@@ -106,6 +129,11 @@ class ChatSessionViewModel: ObservableObject {
     }
 
     // MARK: - Lifecycle
+
+    deinit {
+        cancellables.removeAll()
+        notificationCancellables.removeAll()
+    }
 
     func setupAgentSession() {
         guard let sessionId = session.id else { return }
@@ -283,9 +311,12 @@ class ChatSessionViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newMessages in
                 guard let self = self else { return }
-                self.messages = newMessages
-                self.rebuildTimeline()
-                if let lastMessage = newMessages.last {
+                self.syncMessages(newMessages)
+
+                // isProcessing is driven by isStreaming observer - no need to update here
+
+                // Only auto-scroll if user is near bottom
+                if self.isNearBottom, let lastMessage = newMessages.last {
                     self.scrollProxy?.scrollTo(lastMessage.id, anchor: .bottom)
                 }
             }
@@ -295,12 +326,14 @@ class ChatSessionViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newToolCalls in
                 guard let self = self else { return }
-                self.toolCalls = newToolCalls
-                self.rebuildTimeline()
-                if let lastCall = newToolCalls.last {
-                    self.scrollProxy?.scrollTo(lastCall.id, anchor: .bottom)
-                } else if let lastMessage = self.messages.last {
-                    self.scrollProxy?.scrollTo(lastMessage.id, anchor: .bottom)
+                self.syncToolCalls(newToolCalls)
+                // Only auto-scroll if user is near bottom
+                if self.isNearBottom {
+                    if let lastCall = newToolCalls.last {
+                        self.scrollProxy?.scrollTo(lastCall.id, anchor: .bottom)
+                    } else if let lastMessage = self.messages.last {
+                        self.scrollProxy?.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -365,6 +398,14 @@ class ChatSessionViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] modeId in
                 self?.currentModeId = modeId
+            }
+            .store(in: &cancellables)
+
+        // Observe isStreaming to update isProcessing - this is the source of truth
+        session.$isStreaming
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isStreaming in
+                self?.isProcessing = isStreaming
             }
             .store(in: &cancellables)
 

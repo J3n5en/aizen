@@ -45,12 +45,31 @@ extension AgentSession {
                 // This ensures text after tool calls appears as a new message
                 markLastMessageComplete()
 
+                // Check if this is a Task (subagent) tool call
+                let isTaskTool = isTaskToolCall(toolCallUpdate)
+
+                // Determine parent for non-Task tool calls
+                // Only assign parent when exactly one Task is active (sequential execution)
+                // For parallel Tasks, we cannot reliably determine which Task spawned which tool
+                var parentId: String? = nil
+                if !isTaskTool && activeTaskIds.count == 1 {
+                    parentId = activeTaskIds.first
+                }
+
+                // Track active Tasks
+                if isTaskTool && toolCallUpdate.status == .pending {
+                    activeTaskIds.append(toolCallUpdate.toolCallId)
+                }
+
                 // Prefer full payload when provided; use readable title fallback
                 let preferredTitle = normalizedTitle(toolCallUpdate.title) ?? derivedTitle(from: toolCallUpdate)
-                updateToolCalls([toolCallUpdate.asToolCall(
+                var toolCall = toolCallUpdate.asToolCall(
                     preferredTitle: preferredTitle,
+                    iterationId: currentIterationId,
                     fallbackTitle: { self.fallbackTitle(kind: $0) }
-                )])
+                )
+                toolCall.parentToolCallId = parentId
+                updateToolCalls([toolCall])
             case .toolCallUpdate(let details):
                 let toolCallId = details.toolCallId
                 if let index = toolCalls.firstIndex(where: { $0.toolCallId == toolCallId }) {
@@ -68,6 +87,11 @@ extension AgentSession {
                         updated.content = merged
                     }
                     toolCalls[index] = updated
+
+                    // Clean up activeTaskIds when Task completes
+                    if details.status == .completed || details.status == .failed {
+                        activeTaskIds.removeAll { $0 == toolCallId }
+                    }
                 }
             case .agentMessageChunk(let block):
                 currentThought = nil
@@ -125,7 +149,7 @@ extension AgentSession {
                 // Merge content instead of replacing entirely
                 let existingContent = toolCalls[index].content
                 let mergedContent = coalesceAdjacentTextBlocks(existingContent + newCall.content)
-                toolCalls[index] = ToolCall(
+                var updated = ToolCall(
                     toolCallId: newCall.toolCallId,
                     title: cleanTitle(newCall.title).isEmpty ? toolCalls[index].title : cleanTitle(newCall.title),
                     kind: newCall.kind,
@@ -136,6 +160,9 @@ extension AgentSession {
                     rawOutput: newCall.rawOutput ?? toolCalls[index].rawOutput,
                     timestamp: toolCalls[index].timestamp
                 )
+                updated.iterationId = toolCalls[index].iterationId
+                updated.parentToolCallId = toolCalls[index].parentToolCallId ?? newCall.parentToolCallId
+                toolCalls[index] = updated
             } else {
                 toolCalls.append(newCall)
             }
@@ -282,6 +309,16 @@ extension AgentSession {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Detect if a tool call is a Task (subagent) via _meta.claudeCode.toolName
+    private func isTaskToolCall(_ update: ToolCallUpdate) -> Bool {
+        guard let meta = update._meta,
+              let claudeCode = meta["claudeCode"]?.value as? [String: Any],
+              let toolName = claudeCode["toolName"] as? String else {
+            return false
+        }
+        return toolName == "Task"
+    }
+
     /// Extract best-effort string from loosely-typed "text" payloads
     private func extractText(_ raw: Any?) -> String? {
         guard let raw else { return nil }
@@ -317,12 +354,13 @@ extension AgentSession {
 private extension ToolCallUpdate {
     func asToolCall(
         preferredTitle: String? = nil,
+        iterationId: String? = nil,
         fallbackTitle: (ToolKind?) -> String = { kind in
             let text = kind?.rawValue.replacingOccurrences(of: "_", with: " ") ?? "Tool"
             return text.capitalized
         }
     ) -> ToolCall {
-        ToolCall(
+        var call = ToolCall(
             toolCallId: toolCallId,
             title: preferredTitle ?? fallbackTitle(kind),
             kind: kind,
@@ -333,5 +371,7 @@ private extension ToolCallUpdate {
             rawOutput: rawOutput,
             timestamp: Date()
         )
+        call.iterationId = iterationId
+        return call
     }
 }

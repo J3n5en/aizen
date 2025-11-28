@@ -23,8 +23,8 @@ extension AgentSession {
             throw AgentSessionError.clientNotInitialized
         }
 
-        // Clear tool calls from previous message
-        toolCalls = []
+        // Start new iteration - previous tool calls remain visible but will be collapsed
+        currentIterationId = UUID().uuidString
 
         // Mark any incomplete agent message as complete before starting new conversation turn
         markLastMessageComplete()
@@ -45,11 +45,18 @@ extension AgentSession {
         // Add user message to UI with all content blocks
         addUserMessage(content, contentBlocks: contentBlocks)
 
-        // Send to agent - notifications will arrive asynchronously
-        // Tool calls will mark messages complete, or if no tools, the final chunk completes it
+        // Mark streaming active before sending
+        isStreaming = true
+
+        // Send to agent - notifications arrive asynchronously via AsyncStream
         let response = try await client.sendPrompt(sessionId: sessionId, content: contentBlocks)
 
-        // Mark the agent message as complete when the prompt finishes
+        // Yield to let AsyncStream notification consumer process any buffered messages
+        // This prevents race where isStreaming=false fires before last chunks are processed
+        await Task.yield()
+
+        // Now mark streaming complete and finalize message
+        isStreaming = false
         markLastMessageComplete()
 
         logger.debug("Prompt completed with stop reason: \(response.stopReason.rawValue)")
@@ -92,6 +99,13 @@ extension AgentSession {
             throw AgentSessionError.custom("Cannot access file: \(url.lastPathComponent)")
         }
         defer { url.stopAccessingSecurityScopedResource() }
+        
+        // Check file size (limit to 10MB)
+        let maxFileSize = 10 * 1024 * 1024 // 10MB
+        let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        if let fileSize = fileAttributes[.size] as? Int64, fileSize > maxFileSize {
+            throw AgentSessionError.custom("File too large: \(url.lastPathComponent) (\(fileSize / 1024 / 1024)MB). Maximum size is 10MB.")
+        }
 
         // Get MIME type
         let mimeType = getMimeType(for: url)
@@ -103,8 +117,8 @@ extension AgentSession {
                         mimeType == "application/javascript"
 
         if isTextFile {
-            // Read as text
-            let text = try String(contentsOf: url, encoding: .utf8)
+            // Read as text asynchronously
+            let text = try await readTextFileAsync(url: url)
             let textResource = EmbeddedTextResourceContents(
                 text: text,
                 mimeType: mimeType,
@@ -118,8 +132,8 @@ extension AgentSession {
             )
             return .resource(resourceContent)
         } else {
-            // Read as binary and base64 encode
-            let data = try Data(contentsOf: url)
+            // Read as binary asynchronously and base64 encode
+            let data = try await readDataFileAsync(url: url)
             let base64 = data.base64EncodedString()
             let blobResource = EmbeddedBlobResourceContents(
                 blob: base64,
@@ -133,6 +147,34 @@ extension AgentSession {
                 _meta: nil
             )
             return .resource(resourceContent)
+        }
+    }
+    
+    /// Asynchronously read text file
+    private func readTextFileAsync(url: URL) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let text = try String(contentsOf: url, encoding: .utf8)
+                    continuation.resume(returning: text)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    /// Asynchronously read binary file
+    private func readDataFileAsync(url: URL) async throws -> Data {
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let data = try Data(contentsOf: url)
+                    continuation.resume(returning: data)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 

@@ -20,9 +20,11 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     @Published var workingDirectory: String
     @Published var toolCalls: [ToolCall] = []
     @Published var messages: [MessageItem] = []
+    @Published var currentIterationId: String?
     @Published var isActive: Bool = false
     @Published var currentThought: String?
     @Published var error: String?
+    @Published var isStreaming: Bool = false  // True while prompt request is in progress
 
     @Published var authMethods: [AuthMethod] = []
     @Published var needsAuthentication: Bool = false
@@ -49,7 +51,13 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     var cancellables = Set<AnyCancellable>()
     var process: Process?
     var notificationTask: Task<Void, Never>?
+    var versionCheckTask: Task<Void, Never>?
     let logger = Logger.forCategory("AgentSession")
+
+    /// Currently pending Task tool calls (subagents) - used for parent tracking
+    /// When only one Task is active, child tool calls are assigned to it
+    /// When multiple Tasks are active (parallel), we cannot reliably assign parents
+    var activeTaskIds: [String] = []
 
     // Delegates
     private let fileSystemDelegate = AgentFileSystemDelegate()
@@ -67,10 +75,18 @@ class AgentSession: ObservableObject, ACPClientDelegate {
 
     /// Start a new agent session
     func start(agentName: String, workingDir: String) async throws {
+        // Atomically check and set active state to prevent race conditions
         guard !isActive else {
             throw AgentSessionError.sessionAlreadyActive
         }
-
+        
+        // Mark as starting to prevent concurrent start calls
+        isActive = true
+        
+        // Store for potential rollback on error
+        let previousAgentName = self.agentName
+        let previousWorkingDir = self.workingDirectory
+        
         self.agentName = agentName
         self.workingDirectory = workingDir
 
@@ -80,6 +96,7 @@ class AgentSession: ObservableObject, ACPClientDelegate {
 
         guard let agentPath = agentPath, isValid else {
             // Agent not configured or invalid - trigger setup dialog
+            // Keep isActive true so UI shows the setup dialog
             needsAgentSetup = true
             missingAgentName = agentName
             setupError = nil
@@ -97,7 +114,16 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         let launchArgs = AgentRegistry.shared.getAgentLaunchArgs(for: agentName)
 
         // Launch the agent process with correct working directory
-        try await client.launch(agentPath: agentPath, arguments: launchArgs, workingDirectory: workingDir)
+        do {
+            try await client.launch(agentPath: agentPath, arguments: launchArgs, workingDirectory: workingDir)
+        } catch {
+            // Rollback on launch failure
+            isActive = false
+            self.agentName = previousAgentName
+            self.workingDirectory = previousWorkingDir
+            self.acpClient = nil
+            throw error
+        }
 
         // Initialize protocol
         let initResponse = try await client.initialize(
@@ -112,11 +138,12 @@ class AgentSession: ObservableObject, ACPClientDelegate {
         )
 
         // Check agent version in background (non-blocking)
-        Task {
+        versionCheckTask = Task { [weak self] in
+            guard let self = self else { return }
             let versionInfo = await AgentVersionChecker.shared.checkVersion(for: agentName)
             await MainActor.run {
+                self.versionInfo = versionInfo
                 if versionInfo.isOutdated {
-                    self.versionInfo = versionInfo
                     self.needsUpdate = true
                     self.addSystemMessage("⚠️ Update available: \(agentName) v\(versionInfo.current ?? "?") → v\(versionInfo.latest ?? "?")")
                 }
@@ -214,9 +241,11 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     func close() async {
         isActive = false
 
-        // Cancel notification listener
+        // Cancel all background tasks
         notificationTask?.cancel()
         notificationTask = nil
+        versionCheckTask?.cancel()
+        versionCheckTask = nil
 
         if let client = acpClient {
             await client.terminate()
@@ -254,11 +283,14 @@ class AgentSession: ObservableObject, ACPClientDelegate {
     }
 
     func handleTerminalCreate(command: String, sessionId: String, args: [String]?, cwd: String?, env: [EnvVariable]?, outputByteLimit: Int?) async throws -> CreateTerminalResponse {
+        // Fall back to session's working directory if cwd not specified
+        let effectiveCwd = cwd ?? (workingDirectory.isEmpty ? nil : workingDirectory)
+
         return try await terminalDelegate.handleTerminalCreate(
             command: command,
             sessionId: sessionId,
             args: args,
-            cwd: cwd,
+            cwd: effectiveCwd,
             env: env,
             outputByteLimit: outputByteLimit
         )
@@ -304,7 +336,7 @@ class AgentSession: ObservableObject, ACPClientDelegate {
 
 // MARK: - Supporting Types
 
-struct MessageItem: Identifiable {
+struct MessageItem: Identifiable, Equatable {
     let id: String
     let role: MessageRole
     let content: String
@@ -315,6 +347,12 @@ struct MessageItem: Identifiable {
     var startTime: Date? // When agent started responding (first chunk)
     var executionTime: TimeInterval? // Time taken to generate response in seconds
     var requestId: String? // Track which user request this response belongs to
+
+    static func == (lhs: MessageItem, rhs: MessageItem) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.content == rhs.content &&
+        lhs.isComplete == rhs.isComplete
+    }
 }
 
 enum MessageRole {

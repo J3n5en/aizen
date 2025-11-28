@@ -25,7 +25,14 @@ struct MarkdownRenderedView: View {
     let content: String
     var isStreaming: Bool = false
 
+    @State private var cachedBlocks: [MarkdownBlock]?
+    @State private var cachedContent: String = ""
+
     private var renderedBlocks: [MarkdownBlock] {
+        // Return cached if content unchanged
+        if let cached = cachedBlocks, cachedContent == content {
+            return cached
+        }
         let document = Document(parsing: content)
         return convertMarkdown(document)
     }
@@ -79,6 +86,19 @@ struct MarkdownRenderedView: View {
                 }
             }
         }
+        .onAppear {
+            updateCache()
+        }
+        .onChange(of: content) { _ in
+            updateCache()
+        }
+    }
+
+    private func updateCache() {
+        guard cachedContent != content else { return }
+        let document = Document(parsing: content)
+        cachedBlocks = convertMarkdown(document)
+        cachedContent = content
     }
 
     private func convertMarkdown(_ document: Document) -> [MarkdownBlock] {

@@ -7,17 +7,43 @@
 
 import SwiftUI
 
+// MARK: - Preference Keys for Scroll Detection
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ScrollContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ScrollViewHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct ChatMessageList: View {
     let timelineItems: [TimelineItem]
     let isProcessing: Bool
     let selectedAgent: String
     let currentThought: String?
+    let currentIterationId: String?
     let onScrollProxyReady: (ScrollViewProxy) -> Void
     let onAppear: () -> Void
     let renderInlineMarkdown: (String) -> AttributedString
     var onToolTap: (ToolCall) -> Void = { _ in }
     var onOpenFileInEditor: (String) -> Void = { _ in }
     var agentSession: AgentSession? = nil
+    var onScrollPositionChange: (Bool) -> Void = { _ in }
+    var childToolCallsProvider: (String) -> [ToolCall] = { _ in [] }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -30,13 +56,22 @@ struct ChatMessageList: View {
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                         case .toolCall(let toolCall):
-                            ToolCallView(
-                                toolCall: toolCall,
-                                onOpenDetails: { tapped in onToolTap(tapped) },
-                                agentSession: agentSession,
-                                onOpenInEditor: onOpenFileInEditor
-                            )
-                            .transition(.opacity.combined(with: .move(edge: .leading)))
+                            // Skip child tool calls (rendered inside parent Task)
+                            if toolCall.parentToolCallId != nil {
+                                EmptyView()
+                            } else {
+                                let children = childToolCallsProvider(toolCall.toolCallId)
+                                ToolCallView(
+                                    toolCall: toolCall,
+                                    currentIterationId: currentIterationId,
+                                    onOpenDetails: { tapped in onToolTap(tapped) },
+                                    agentSession: agentSession,
+                                    onOpenInEditor: onOpenFileInEditor,
+                                    childToolCalls: children
+                                )
+                                .id(toolCall.id)
+                                .transition(.opacity.combined(with: .move(edge: .leading)))
+                            }
                         }
                     }
 
@@ -45,14 +80,64 @@ struct ChatMessageList: View {
                             .id("processing")
                             .transition(.opacity)
                     }
+
+                    // Bottom anchor for scroll position detection
+                    Color.clear
+                        .frame(height: 1)
+                        .id("bottom_anchor")
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 20)
+                .background(
+                    GeometryReader { contentGeometry in
+                        Color.clear
+                            .preference(key: ScrollContentHeightKey.self, value: contentGeometry.size.height)
+                            .preference(key: ScrollOffsetKey.self, value: contentGeometry.frame(in: .named("scroll")).minY)
+                    }
+                )
+            }
+            .coordinateSpace(name: "scroll")
+            .background(
+                GeometryReader { scrollGeometry in
+                    Color.clear
+                        .preference(key: ScrollViewHeightKey.self, value: scrollGeometry.size.height)
+                }
+            )
+            .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                updateScrollState(offset: offset)
+            }
+            .onPreferenceChange(ScrollContentHeightKey.self) { content in
+                updateScrollState(content: content)
+            }
+            .onPreferenceChange(ScrollViewHeightKey.self) { viewport in
+                updateScrollState(viewport: viewport)
             }
             .onAppear {
                 onScrollProxyReady(proxy)
                 onAppear()
             }
+        }
+    }
+
+    @State private var scrollViewHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var scrollOffset: CGFloat = 0
+    @State private var lastReportedNearBottom: Bool = true
+
+    private func updateScrollState(offset: CGFloat? = nil, content: CGFloat? = nil, viewport: CGFloat? = nil) {
+        if let offset = offset { scrollOffset = offset }
+        if let content = content { contentHeight = content }
+        if let viewport = viewport { scrollViewHeight = viewport }
+
+        // Calculate if we're near the bottom
+        // scrollOffset is negative when scrolled down (content moves up)
+        // When at bottom: -scrollOffset + viewportHeight >= contentHeight
+        let distanceFromBottom = contentHeight + scrollOffset - scrollViewHeight
+        let isNearBottom = distanceFromBottom <= 50 || contentHeight <= scrollViewHeight
+
+        if isNearBottom != lastReportedNearBottom {
+            lastReportedNearBottom = isNearBottom
+            onScrollPositionChange(isNearBottom)
         }
     }
 

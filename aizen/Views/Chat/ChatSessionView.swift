@@ -52,6 +52,7 @@ struct ChatSessionView: View {
                         isProcessing: viewModel.isProcessing,
                         selectedAgent: viewModel.selectedAgentDisplayName,
                         currentThought: viewModel.currentAgentSession?.currentThought,
+                        currentIterationId: viewModel.currentAgentSession?.currentIterationId,
                         onScrollProxyReady: { proxy in
                             viewModel.scrollProxy = proxy
                         },
@@ -63,7 +64,13 @@ struct ChatSessionView: View {
                         onOpenFileInEditor: { path in
                             fileToOpenInEditor = path
                         },
-                        agentSession: viewModel.currentAgentSession
+                        agentSession: viewModel.currentAgentSession,
+                        onScrollPositionChange: { isNearBottom in
+                            viewModel.isNearBottom = isNearBottom
+                        },
+                        childToolCallsProvider: { parentId in
+                            viewModel.childToolCalls(for: parentId)
+                        }
                     )
 
                     Spacer(minLength: 0)
@@ -149,26 +156,17 @@ struct ChatSessionView: View {
             )
             fileToOpenInEditor = nil
         }
-        .sheet(isPresented: Binding(
-            get: { viewModel.needsAuth },
-            set: { if !$0 { viewModel.needsAuth = false } }
-        )) {
+        .sheet(isPresented: viewModel.needsAuthBinding) {
             if let agentSession = viewModel.currentAgentSession {
                 AuthenticationSheet(session: agentSession)
             }
         }
-        .sheet(isPresented: Binding(
-            get: { viewModel.needsSetup },
-            set: { if !$0 { viewModel.needsSetup = false } }
-        )) {
+        .sheet(isPresented: viewModel.needsSetupBinding) {
             if let agentSession = viewModel.currentAgentSession {
                 AgentSetupDialog(session: agentSession)
             }
         }
-        .sheet(isPresented: Binding(
-            get: { viewModel.needsUpdate },
-            set: { if !$0 { viewModel.needsUpdate = false } }
-        )) {
+        .sheet(isPresented: viewModel.needsUpdateBinding) {
             if let versionInfo = viewModel.versionInfo {
                 AgentUpdateSheet(
                     agentName: viewModel.selectedAgent,

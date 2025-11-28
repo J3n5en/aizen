@@ -126,6 +126,8 @@ struct ToolCall: Codable, Identifiable {
     var rawInput: AnyCodable?
     var rawOutput: AnyCodable?
     var timestamp: Date = Date()
+    var iterationId: String?
+    var parentToolCallId: String?  // Parent Task's toolCallId for nested tool calls
 
     var id: String { toolCallId }
 

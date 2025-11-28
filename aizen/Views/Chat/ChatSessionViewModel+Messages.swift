@@ -21,18 +21,8 @@ extension ChatSessionViewModel {
             inputText = ""
             attachments = []
             isProcessing = true
-        }
-
-        let userMessage = MessageItem(
-            id: UUID().uuidString,
-            role: .user,
-            content: messageText,
-            timestamp: Date()
-        )
-
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            messages.append(userMessage)
-            rebuildTimeline()
+            // Re-enable auto-scroll when user sends a message
+            isNearBottom = true
         }
 
         Task {
@@ -66,10 +56,7 @@ extension ChatSessionViewModel {
                     self.attachments = messageAttachments
                 }
             }
-
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                self.isProcessing = false
-            }
+            // isProcessing is now derived from message state in setupSessionObservers
         }
     }
 

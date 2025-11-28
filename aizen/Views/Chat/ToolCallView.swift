@@ -1,4 +1,3 @@
-//
 //  ToolCallView.swift
 //  aizen
 //
@@ -12,25 +11,33 @@ import CodeEditSourceEditor
 
 struct ToolCallView: View {
     let toolCall: ToolCall
+    var currentIterationId: String? = nil
     var onOpenDetails: ((ToolCall) -> Void)? = nil
     var agentSession: AgentSession? = nil
     var onOpenInEditor: ((String) -> Void)? = nil
+    var childToolCalls: [ToolCall] = []  // Children for Task tool calls
 
     @State private var isExpanded: Bool
 
-    init(toolCall: ToolCall, onOpenDetails: ((ToolCall) -> Void)? = nil, agentSession: AgentSession? = nil, onOpenInEditor: ((String) -> Void)? = nil) {
+    init(toolCall: ToolCall, currentIterationId: String? = nil, onOpenDetails: ((ToolCall) -> Void)? = nil, agentSession: AgentSession? = nil, onOpenInEditor: ((String) -> Void)? = nil, childToolCalls: [ToolCall] = []) {
         self.toolCall = toolCall
+        self.currentIterationId = currentIterationId
         self.onOpenDetails = onOpenDetails
         self.agentSession = agentSession
         self.onOpenInEditor = onOpenInEditor
-        // Default expanded for edit, diff, and terminal content
-        let shouldExpand = toolCall.kind == .edit || toolCall.kind == .delete ||
+        self.childToolCalls = childToolCalls
+
+        // Collapse tool calls from previous iterations
+        let isCurrentIteration = currentIterationId == nil || toolCall.iterationId == currentIterationId
+
+        // Default expanded for current iteration edit/diff/terminal content
+        let shouldExpand = isCurrentIteration && (toolCall.kind == .edit || toolCall.kind == .delete ||
             toolCall.content.contains { content in
                 switch content {
                 case .diff, .terminal: return true
                 default: return false
                 }
-            }
+            })
         self._isExpanded = State(initialValue: shouldExpand)
     }
 
@@ -59,8 +66,15 @@ struct ToolCallView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
-                    // Expand indicator if has content
-                    if hasContent {
+                    // Child count badge for Task tool calls
+                    if isTaskToolCall && !childToolCalls.isEmpty {
+                        Text("(\(childToolCalls.count))")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Expand indicator if has content or children
+                    if hasContent || !childToolCalls.isEmpty {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 8, weight: .medium))
                             .foregroundStyle(.tertiary)
@@ -75,22 +89,42 @@ struct ToolCallView: View {
             .buttonStyle(.plain)
 
             // Expandable content
-            if isExpanded && hasContent {
-                inlineContentView
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-
-                // Open in Editor button for file operations
-                if let path = filePath, onOpenInEditor != nil {
-                    Button(action: { onOpenInEditor?(path) }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "doc.text")
-                            Text("Open in Editor")
+            if isExpanded && (hasContent || !childToolCalls.isEmpty) {
+                // Child tool calls for Task (rendered inline)
+                if isTaskToolCall && !childToolCalls.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(childToolCalls) { child in
+                            ToolCallView(
+                                toolCall: child,
+                                currentIterationId: currentIterationId,
+                                agentSession: agentSession,
+                                onOpenInEditor: onOpenInEditor,
+                                childToolCalls: []  // Children are leaf nodes
+                            )
+                            .padding(.leading, 12)
                         }
-                        .font(.system(size: 10))
                     }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.blue)
-                    .padding(.top, 4)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                // Original content (for non-Task or Task's own summary)
+                if hasContent {
+                    inlineContentView
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+
+                    // Open in Editor button for file operations
+                    if let path = filePath, onOpenInEditor != nil {
+                        Button(action: { onOpenInEditor?(path) }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.text")
+                                Text("Open in Editor")
+                            }
+                            .font(.system(size: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.blue)
+                        .padding(.top, 4)
+                    }
                 }
             }
         }
@@ -118,6 +152,13 @@ struct ToolCallView: View {
             return toolCall.title
         }
         return nil
+    }
+
+    // MARK: - Task Detection
+
+    /// Check if this tool call is a Task (subagent) - detected by having children
+    private var isTaskToolCall: Bool {
+        !childToolCalls.isEmpty
     }
 
     // MARK: - Inline Content
@@ -292,45 +333,96 @@ struct HighlightedTextContentView: View {
 
     private let highlighter = TreeSitterHighlighter()
 
+    /// Extract code from markdown code fence if present, along with language hint
+    private var parsedContent: (code: String, fenceLanguage: String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Check for markdown code fence: ```language\ncode\n```
+        if trimmed.hasPrefix("```") {
+            let lines = trimmed.components(separatedBy: "\n")
+            guard lines.count >= 2 else { return (text, nil) }
+
+            // Extract language from first line (```swift or ```)
+            let firstLine = lines[0]
+            let fenceLang = String(firstLine.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+
+            // Find closing fence
+            var codeLines: [String] = []
+            for i in 1..<lines.count {
+                if lines[i].trimmingCharacters(in: .whitespaces) == "```" {
+                    break
+                }
+                codeLines.append(lines[i])
+            }
+
+            let code = codeLines.joined(separator: "\n")
+            return (code, fenceLang.isEmpty ? nil : fenceLang)
+        }
+
+        return (text, nil)
+    }
+
     private var detectedLanguage: CodeLanguage {
+        let (_, fenceLang) = parsedContent
+
+        // First try fence language hint
+        if let lang = fenceLang, !lang.isEmpty {
+            return LanguageDetection.languageFromFence(lang)
+        }
+
+        // Fall back to file path detection
         guard let path = filePath else { return CodeLanguage.default }
         return LanguageDetection.detectLanguage(mimeType: nil, uri: path, content: text)
     }
 
-    private var isCodeFile: Bool {
+    private var shouldHighlight: Bool {
+        let (_, fenceLang) = parsedContent
+        // Highlight if we have a fence language or a code file path
+        if fenceLang != nil { return true }
         guard let path = filePath else { return false }
         return LanguageDetection.isCodeFile(mimeType: nil, uri: path)
     }
 
+    private var codeLines: [String] {
+        parsedContent.code.components(separatedBy: "\n")
+    }
+
     var body: some View {
-        ScrollView {
-            Group {
-                if isCodeFile, let highlighted = highlightedText {
+        ScrollView(.vertical, showsIndicators: true) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if shouldHighlight, let highlighted = highlightedText {
                     Text(highlighted)
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text(text)
-                        .foregroundColor(.primary)
+                    // Lazy render lines for large content
+                    ForEach(Array(codeLines.enumerated()), id: \.offset) { _, line in
+                        Text(line.isEmpty ? " " : line)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
-            .font(.system(size: 10, design: .monospaced))
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 150)
         .padding(6)
         .background(Color(nsColor: .textBackgroundColor))
         .cornerRadius(4)
         .task(id: text) {
-            guard isCodeFile else { return }
+            guard shouldHighlight else { return }
             await performHighlight()
         }
     }
 
     private func performHighlight() async {
+        let (code, _) = parsedContent
         do {
             let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
             let attributed = try await highlighter.highlightCode(
-                text,
+                code,
                 language: detectedLanguage,
                 theme: theme
             )
@@ -363,609 +455,4 @@ struct HighlightedTextContentView: View {
             comments: .init(color: .systemGray)
         )
     }
-}
-
-// MARK: - Content Block View
-
-struct ContentBlockView: View {
-    let block: ContentBlock
-    @State private var isCopied: Bool = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                contentTypeLabel
-                Spacer()
-                copyButton
-            }
-
-            contentBody
-        }
-        .padding(8)
-        .background(Color(.textBackgroundColor))
-        .cornerRadius(4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(Color.gray.opacity(0.15), lineWidth: 0.5)
-        )
-    }
-
-    private var contentTypeLabel: some View {
-        Group {
-            switch block {
-            case .text:
-                Label(String(localized: "chat.content.textOutput"), systemImage: "text.alignleft")
-            case .image:
-                Label(String(localized: "chat.content.image"), systemImage: "photo")
-            case .resource:
-                Label(String(localized: "chat.content.resource"), systemImage: "doc.badge.gearshape")
-            case .resourceLink:
-                Label(String(localized: "chat.content.resourceLink"), systemImage: "link.circle")
-            case .audio:
-                Label(String(localized: "chat.content.audio"), systemImage: "waveform")
-            }
-        }
-        .font(.system(size: 10))
-        .foregroundColor(.secondary)
-    }
-
-    private var copyButton: some View {
-        Button(action: copyContent) {
-            HStack(spacing: 3) {
-                Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                Text(isCopied ? String(localized: "chat.content.copied") : String(localized: "chat.content.copy"))
-            }
-            .font(.system(size: 10))
-            .foregroundColor(isCopied ? .green : .blue)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var contentBody: some View {
-        switch block {
-        case .text(let content):
-            TextContentView(text: content.text)
-        case .image(let content):
-            ACPImageView(data: content.data, mimeType: content.mimeType)
-        case .resource(let content):
-            resourceView(for: content.resource)
-        case .audio(let content):
-            Text(String(format: String(localized: "chat.content.audioType"), content.mimeType))
-                .foregroundColor(.secondary)
-        case .resourceLink(let content):
-            VStack(alignment: .leading, spacing: 4) {
-                if let title = content.title {
-                    Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                }
-                Text(content.uri)
-                    .font(.caption)
-                    .foregroundColor(.blue)
-            }
-        }
-    }
-
-    private func copyContent() {
-        let textToCopy: String
-
-        switch block {
-        case .text(let content):
-            textToCopy = content.text
-        case .image:
-            textToCopy = String(localized: "chat.content.imageContent")
-        case .resource(let content):
-            let uri: String
-            let text: String?
-            switch content.resource {
-            case .text(let textResource):
-                uri = textResource.uri
-                text = textResource.text
-            case .blob(let blobResource):
-                uri = blobResource.uri
-                text = nil
-            }
-            textToCopy = text ?? uri
-        case .resourceLink(let content):
-            textToCopy = content.uri
-        case .audio(let content):
-            textToCopy = String(format: String(localized: "chat.content.audioContent"), content.mimeType)
-        }
-
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(textToCopy, forType: .string)
-
-        isCopied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            isCopied = false
-        }
-    }
-
-    @ViewBuilder
-    private func resourceView(for resource: EmbeddedResourceType) -> some View {
-        switch resource {
-        case .text(let textResource):
-            ACPResourceView(uri: textResource.uri, mimeType: textResource.mimeType, text: textResource.text)
-        case .blob(let blobResource):
-            ACPResourceView(uri: blobResource.uri, mimeType: blobResource.mimeType, text: nil)
-        }
-    }
-}
-
-// MARK: - Text Content View
-
-struct TextContentView: View {
-    let text: String
-
-    var body: some View {
-        ScrollView {
-            if isDiff {
-                DiffContentView(text: text)
-            } else if isTerminalOutput {
-                TerminalContentView(text: text)
-            } else {
-                Text(text)
-                    .font(.system(size: 11, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .frame(maxHeight: 300)
-    }
-
-    private var isDiff: Bool {
-        text.contains("+++") || text.contains("---") ||
-        text.split(separator: "\n").contains { line in
-            line.hasPrefix("+") || line.hasPrefix("-") || line.hasPrefix("@@")
-        }
-    }
-
-    private var isTerminalOutput: Bool {
-        text.contains("$") && (text.contains("\n") || text.count > 50)
-    }
-}
-
-// MARK: - Diff Content View
-
-struct DiffContentView: View {
-    let text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(lines, id: \.self) { line in
-                diffLine(line)
-            }
-        }
-        .font(.system(size: 11, design: .monospaced))
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var lines: [String] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-    }
-
-    private func diffLine(_ line: String) -> some View {
-        Text(line)
-            .foregroundColor(lineColor(for: line))
-            .background(lineBackground(for: line))
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func lineColor(for line: String) -> Color {
-        if line.hasPrefix("+") && !line.hasPrefix("+++") {
-            return .green
-        } else if line.hasPrefix("-") && !line.hasPrefix("---") {
-            return .red
-        } else if line.hasPrefix("@@") {
-            return .blue
-        }
-        return .primary
-    }
-
-    private func lineBackground(for line: String) -> Color {
-        if line.hasPrefix("+") && !line.hasPrefix("+++") {
-            return Color.green.opacity(0.1)
-        } else if line.hasPrefix("-") && !line.hasPrefix("---") {
-            return Color.red.opacity(0.1)
-        }
-        return Color.clear
-    }
-}
-
-// MARK: - Terminal Content View
-
-struct TerminalContentView: View {
-    let text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(lines, id: \.self) { line in
-                Text(line)
-                    .foregroundColor(lineColor(for: line))
-            }
-        }
-        .font(.system(size: 11, design: .monospaced))
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(6)
-        .background(Color.black.opacity(0.85))
-        .cornerRadius(3)
-    }
-
-    private var lines: [String] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-    }
-
-    private func lineColor(for line: String) -> Color {
-        if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
-            return .red
-        } else if line.contains("warning") || line.contains("Warning") || line.contains("WARN") {
-            return .yellow
-        } else if line.contains("success") || line.contains("Success") || line.contains("✓") {
-            return .green
-        } else if line.hasPrefix("$") || line.hasPrefix(">") {
-            return .cyan
-        }
-        return .white
-    }
-}
-
-
-// MARK: - Inline Diff Line (local to avoid conflict with DiffView.DiffLine)
-
-private enum InlineDiffLineType {
-    case context
-    case added
-    case deleted
-    case separator
-}
-
-private struct InlineDiffLine: Identifiable {
-    let id = UUID()
-    let type: InlineDiffLineType
-    let content: String
-}
-
-// MARK: - Inline Diff View
-
-struct InlineDiffView: View {
-    let diff: ToolCallDiff
-
-    @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
-    @AppStorage("terminalFontSize") private var terminalFontSize = 12.0
-
-    private var fontSize: CGFloat {
-        max(terminalFontSize - 2, 9)
-    }
-
-    private var diffLines: [InlineDiffLine] {
-        computeUnifiedDiff(oldText: diff.oldText, newText: diff.newText)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // File path header
-            HStack(spacing: 4) {
-                Image(systemName: "doc.badge.plus")
-                    .font(.system(size: 9))
-                Text(URL(fileURLWithPath: diff.path).lastPathComponent)
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .foregroundStyle(.secondary)
-
-            // Diff content
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(diffLines) { line in
-                        diffLineView(line)
-                    }
-                }
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 200)
-            .padding(8)
-            .background(Color(nsColor: .textBackgroundColor))
-            .cornerRadius(6)
-        }
-    }
-
-    @ViewBuilder
-    private func diffLineView(_ line: InlineDiffLine) -> some View {
-        switch line.type {
-        case .context:
-            Text("  \(line.content)")
-                .font(.custom(terminalFontName, size: fontSize))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .added:
-            Text("+ \(line.content)")
-                .font(.custom(terminalFontName, size: fontSize))
-                .foregroundColor(.green)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.green.opacity(0.1))
-        case .deleted:
-            Text("- \(line.content)")
-                .font(.custom(terminalFontName, size: fontSize))
-                .foregroundColor(.red)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.1))
-        case .separator:
-            Text(line.content)
-                .font(.custom(terminalFontName, size: fontSize))
-                .foregroundColor(.cyan)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 2)
-        }
-    }
-
-    // MARK: - Diff Computation
-
-    private func computeUnifiedDiff(oldText: String?, newText: String, contextLines: Int = 3) -> [InlineDiffLine] {
-        let oldLines = (oldText ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let newLines = newText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-
-        // Compute LCS to find matching lines
-        let lcs = longestCommonSubsequence(oldLines, newLines)
-
-        // Build edit script
-        var edits: [(type: InlineDiffLineType, content: String)] = []
-        var oldIdx = 0
-        var newIdx = 0
-        var lcsIdx = 0
-
-        while oldIdx < oldLines.count || newIdx < newLines.count {
-            if lcsIdx < lcs.count && oldIdx < oldLines.count && newIdx < newLines.count &&
-               oldLines[oldIdx] == lcs[lcsIdx] && newLines[newIdx] == lcs[lcsIdx] {
-                // Matching line (context)
-                edits.append((.context, oldLines[oldIdx]))
-                oldIdx += 1
-                newIdx += 1
-                lcsIdx += 1
-            } else if oldIdx < oldLines.count && (lcsIdx >= lcs.count || oldLines[oldIdx] != lcs[lcsIdx]) {
-                // Line removed from old
-                edits.append((.deleted, oldLines[oldIdx]))
-                oldIdx += 1
-            } else if newIdx < newLines.count {
-                // Line added in new
-                edits.append((.added, newLines[newIdx]))
-                newIdx += 1
-            }
-        }
-
-        // Generate unified diff with context
-        return generateHunks(edits: edits, contextLines: contextLines)
-    }
-
-    private func longestCommonSubsequence(_ a: [String], _ b: [String]) -> [String] {
-        let m = a.count
-        let n = b.count
-        guard m > 0 && n > 0 else { return [] }
-
-        var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
-
-        for i in 1...m {
-            for j in 1...n {
-                if a[i - 1] == b[j - 1] {
-                    dp[i][j] = dp[i - 1][j - 1] + 1
-                } else {
-                    dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
-                }
-            }
-        }
-
-        // Backtrack to find LCS
-        var result: [String] = []
-        var i = m, j = n
-        while i > 0 && j > 0 {
-            if a[i - 1] == b[j - 1] {
-                result.append(a[i - 1])
-                i -= 1
-                j -= 1
-            } else if dp[i - 1][j] > dp[i][j - 1] {
-                i -= 1
-            } else {
-                j -= 1
-            }
-        }
-        return result.reversed()
-    }
-
-    private func generateHunks(edits: [(type: InlineDiffLineType, content: String)], contextLines: Int) -> [InlineDiffLine] {
-        var result: [InlineDiffLine] = []
-
-        // Find ranges of changes
-        var changeIndices: [Int] = []
-        for (i, edit) in edits.enumerated() {
-            if edit.type != .context {
-                changeIndices.append(i)
-            }
-        }
-
-        if changeIndices.isEmpty {
-            return [] // No changes
-        }
-
-        // Group changes into hunks
-        var hunks: [[Int]] = []
-        var currentHunk: [Int] = []
-
-        for idx in changeIndices {
-            if currentHunk.isEmpty {
-                currentHunk.append(idx)
-            } else if idx - currentHunk.last! <= contextLines * 2 + 1 {
-                currentHunk.append(idx)
-            } else {
-                hunks.append(currentHunk)
-                currentHunk = [idx]
-            }
-        }
-        if !currentHunk.isEmpty {
-            hunks.append(currentHunk)
-        }
-
-        // Generate output for each hunk
-        for (hunkIdx, hunk) in hunks.enumerated() {
-            let startIdx = max(0, hunk.first! - contextLines)
-            let endIdx = min(edits.count - 1, hunk.last! + contextLines)
-
-            // Add separator between hunks
-            if hunkIdx > 0 {
-                result.append(InlineDiffLine(type: .separator, content: "···"))
-            }
-
-            // Add lines in this hunk
-            for i in startIdx...endIdx {
-                let edit = edits[i]
-                result.append(InlineDiffLine(type: edit.type, content: edit.content))
-            }
-        }
-
-        return result
-    }
-}
-
-// MARK: - Inline Terminal View
-
-struct InlineTerminalView: View {
-    let terminalId: String
-    var agentSession: AgentSession?
-
-    @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
-    @AppStorage("terminalFontSize") private var terminalFontSize = 12.0
-
-    @State private var output: String = ""
-    @State private var isRunning: Bool = false
-    @State private var loadTask: Task<Void, Never>?
-
-    private var fontSize: CGFloat {
-        max(terminalFontSize - 2, 9) // Slightly smaller for inline view
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Terminal output with ANSI colors
-            ScrollView {
-                if output.isEmpty {
-                    Text("Waiting for output...")
-                        .font(.custom(terminalFontName, size: fontSize))
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(ANSIParser.parse(output))
-                        .font(.custom(terminalFontName, size: fontSize))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .frame(maxHeight: 150)
-            .padding(8)
-            .background(Color(red: 0.11, green: 0.11, blue: 0.13))
-            .cornerRadius(6)
-
-            // Running indicator below
-            if isRunning {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                        .frame(width: 12, height: 12)
-                    Text("Running...")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 4)
-            }
-        }
-        .onAppear {
-            startLoading()
-        }
-        .onDisappear {
-            loadTask?.cancel()
-        }
-    }
-
-    private func startLoading() {
-        loadTask = Task {
-            guard let session = agentSession else { return }
-
-            // Poll for output
-            for _ in 0..<120 { // 60 seconds max
-                if Task.isCancelled { break }
-
-                output = await session.getTerminalOutput(terminalId: terminalId) ?? ""
-                isRunning = await session.isTerminalRunning(terminalId: terminalId)
-
-                if !isRunning && !output.isEmpty {
-                    break
-                }
-
-                try? await Task.sleep(nanoseconds: 500_000_000)
-            }
-        }
-    }
-}
-
-// MARK: - Preview
-
-#Preview {
-    VStack(spacing: 16) {
-        ToolCallView(toolCall: ToolCall(
-            toolCallId: "1",
-            title: "Read file: main.swift",
-            kind: .read,
-            status: .completed,
-            content: [.content(.text(TextContent(text: "import SwiftUI\n\nstruct ContentView: View {\n    var body: some View {\n        Text(\"Hello, World!\")\n    }\n}")))],
-            locations: nil,
-            rawInput: nil,
-            rawOutput: nil
-        ))
-
-        ToolCallView(toolCall: ToolCall(
-            toolCallId: "2",
-            title: "Execute: swift build",
-            kind: .execute,
-            status: .inProgress,
-            content: [.content(.text(TextContent(text: "$ swift build\nBuilding for production...")))],
-            locations: nil,
-            rawInput: nil,
-            rawOutput: nil
-        ))
-
-        ToolCallView(toolCall: ToolCall(
-            toolCallId: "3",
-            title: "Search for TODO comments",
-            kind: .search,
-            status: .pending,
-            content: [],
-            locations: nil,
-            rawInput: nil,
-            rawOutput: nil
-        ))
-
-        ToolCallView(toolCall: ToolCall(
-            toolCallId: "4",
-            title: "Edit file: Config.swift",
-            kind: .edit,
-            status: .failed,
-            content: [.content(.text(TextContent(text: "Error: File not found")))],
-            locations: nil,
-            rawInput: nil,
-            rawOutput: nil
-        ))
-
-        ToolCallView(toolCall: ToolCall(
-            toolCallId: "5",
-            title: "Apply diff",
-            kind: .edit,
-            status: .completed,
-            content: [.diff(ToolCallDiff(path: "file.swift", oldText: "import SwiftUI\n\nstruct View: View {", newText: "import SwiftUI\nimport Combine\n\nstruct View: View {"))],
-            locations: nil,
-            rawInput: nil,
-            rawOutput: nil
-        ))
-    }
-    .padding()
-    .frame(width: 700)
 }
