@@ -24,7 +24,7 @@ struct WorkspaceSidebarView: View {
     @State private var workspaceToEdit: Workspace?
     @State private var refreshTimer: Timer?
 
-    private let refreshInterval: TimeInterval = 10.0
+    private let refreshInterval: TimeInterval = 30.0
 
     private func colorFromHex(_ hex: String) -> Color {
         var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -70,9 +70,20 @@ struct WorkspaceSidebarView: View {
 
     private func refreshAllRepositories() {
         Task {
-            for repository in filteredRepositories {
+            // Prioritize selected repository for immediate refresh
+            if let selected = selectedRepository {
+                do {
+                    try await repositoryManager.refreshRepository(selected)
+                } catch {
+                    logger.error("Failed to refresh selected repository \(selected.name ?? "unknown"): \(error.localizedDescription)")
+                }
+            }
+
+            // Background refresh other repos with stagger to reduce I/O contention
+            for repository in filteredRepositories where repository.id != selectedRepository?.id {
                 do {
                     try await repositoryManager.refreshRepository(repository)
+                    try await Task.sleep(for: .milliseconds(100))
                 } catch {
                     logger.error("Failed to refresh repository \(repository.name ?? "unknown"): \(error.localizedDescription)")
                 }

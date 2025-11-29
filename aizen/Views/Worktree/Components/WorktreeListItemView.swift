@@ -30,6 +30,7 @@ struct WorktreeListItemView: View {
     @State private var showingMergeSuccess = false
     @State private var mergeSuccessMessage = ""
     @State private var availableBranches: [BranchInfo] = []
+    @State private var isLoadingBranches = false
     @State private var showingBranchSelector = false
     @State private var branchSwitchError: String?
     @State private var selectedBranchForSwitch: BranchInfo?
@@ -151,24 +152,16 @@ struct WorktreeListItemView: View {
             Divider()
 
             Menu {
-                // Show top local branches (excluding current)
-                ForEach(availableBranches.filter { !$0.isRemote && $0.name != worktree.branch }) { branch in
-                    Button {
-                        switchToBranch(branch)
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.caption)
-                            Text(branch.name)
-                        }
-                    }
-                }
-
-                // Show remote branches that can be tracked
-                if !availableBranches.filter({ $0.isRemote }).isEmpty {
-                    Divider()
-
-                    ForEach(availableBranches.filter { $0.isRemote }) { branch in
+                if availableBranches.isEmpty && !isLoadingBranches {
+                    Text("Loading...")
+                        .foregroundStyle(.secondary)
+                        .onAppear { loadAvailableBranches() }
+                } else if isLoadingBranches {
+                    Text("Loading...")
+                        .foregroundStyle(.secondary)
+                } else {
+                    // Show top local branches (excluding current)
+                    ForEach(availableBranches.filter { !$0.isRemote && $0.name != worktree.branch }) { branch in
                         Button {
                             switchToBranch(branch)
                         } label: {
@@ -176,20 +169,37 @@ struct WorktreeListItemView: View {
                                 Image(systemName: "arrow.triangle.branch")
                                     .font(.caption)
                                 Text(branch.name)
-                                Text("(remote)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
-                }
 
-                Divider()
+                    // Show remote branches that can be tracked
+                    if !availableBranches.filter({ $0.isRemote }).isEmpty {
+                        Divider()
 
-                Button {
-                    showingBranchSelector = true
-                } label: {
-                    Label("Browse or Create Branch...", systemImage: "ellipsis.circle")
+                        ForEach(availableBranches.filter { $0.isRemote }) { branch in
+                            Button {
+                                switchToBranch(branch)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "arrow.triangle.branch")
+                                        .font(.caption)
+                                    Text(branch.name)
+                                    Text("(remote)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button {
+                        showingBranchSelector = true
+                    } label: {
+                        Label("Browse or Create Branch...", systemImage: "ellipsis.circle")
+                    }
                 }
             } label: {
                 Label("Switch Branch", systemImage: "arrow.triangle.swap")
@@ -286,7 +296,6 @@ struct WorktreeListItemView: View {
         }
         .onAppear {
             loadWorktreeStatuses()
-            loadAvailableBranches()
         }
     }
 
@@ -404,10 +413,17 @@ struct WorktreeListItemView: View {
     }
 
     private func loadAvailableBranches() {
+        guard !isLoadingBranches else { return }
+
         Task {
+            await MainActor.run {
+                isLoadingBranches = true
+            }
+
             do {
                 guard let repo = worktree.repository else {
                     logger.warning("Cannot load branches: worktree has no repository")
+                    await MainActor.run { isLoadingBranches = false }
                     return
                 }
                 let branches = try await repositoryManager.getBranches(for: repo)
@@ -423,9 +439,11 @@ struct WorktreeListItemView: View {
                         .prefix(3)
 
                     availableBranches = Array(localBranches) + Array(remoteBranches)
+                    isLoadingBranches = false
                 }
             } catch {
                 logger.error("Failed to load available branches: \(error.localizedDescription)")
+                await MainActor.run { isLoadingBranches = false }
             }
         }
     }

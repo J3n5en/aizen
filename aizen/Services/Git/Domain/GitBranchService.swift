@@ -22,13 +22,49 @@ actor GitBranchService: GitDomainService {
     }
 
     func listBranches(at repoPath: String, includeRemote: Bool = true) async throws -> [BranchInfo] {
-        var arguments = ["branch", "-v", "--no-color"]
+        // Use --no-pager explicitly and avoid -v for faster output on large repos
+        var arguments = ["--no-pager", "branch", "--no-color", "--format=%(refname:short) %(objectname:short) %(if)%(HEAD)%(then)*%(end)"]
         if includeRemote {
             arguments.append("-a")
         }
 
         let output = try await executor.executeGit(arguments: arguments, at: repoPath)
-        return parseBranchList(output)
+        return parseBranchListFormatted(output)
+    }
+
+    private func parseBranchListFormatted(_ output: String) -> [BranchInfo] {
+        let lines = output.split(separator: "\n").map(String.init)
+        var branches: [BranchInfo] = []
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            // Skip detached HEAD entries
+            if trimmed.contains("HEAD detached") || trimmed.hasPrefix("(HEAD") {
+                continue
+            }
+
+            let components = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
+            guard components.count >= 2 else { continue }
+
+            let name = components[0]
+            let commit = components[1]
+            let isRemote = name.hasPrefix("remotes/")
+
+            // Skip HEAD -> refs
+            if name == "origin/HEAD" || name.hasSuffix("/HEAD") {
+                continue
+            }
+
+            branches.append(BranchInfo(
+                name: name.replacingOccurrences(of: "remotes/", with: ""),
+                commit: commit,
+                isRemote: isRemote
+            ))
+        }
+
+        return branches
     }
 
     func checkoutBranch(at path: String, branch: String) async throws {
@@ -74,32 +110,5 @@ actor GitBranchService: GitDomainService {
     private func parseConflictedFiles(at path: String) async throws -> [String] {
         let output = try await executor.executeGit(arguments: ["diff", "--name-only", "--diff-filter=U"], at: path)
         return output.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
-    }
-
-    private func parseBranchList(_ output: String) -> [BranchInfo] {
-        let lines = output.split(separator: "\n").map(String.init)
-        var branches: [BranchInfo] = []
-
-        for line in lines {
-            let cleaned = line.trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: "* ", with: "")
-                .replacingOccurrences(of: "+ ", with: "")
-                .replacingOccurrences(of: "  ", with: " ")
-
-            let components = cleaned.split(separator: " ", maxSplits: 2).map(String.init)
-            guard components.count >= 2 else { continue }
-
-            let name = components[0]
-            let commit = components[1]
-            let isRemote = name.hasPrefix("remotes/")
-
-            branches.append(BranchInfo(
-                name: name.replacingOccurrences(of: "remotes/", with: ""),
-                commit: commit,
-                isRemote: isRemote
-            ))
-        }
-
-        return branches
     }
 }

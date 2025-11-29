@@ -31,6 +31,7 @@ struct ContentView: View {
 
     // Command palette state
     @State private var commandPaletteController: CommandPaletteWindowController?
+    @State private var saveTask: Task<Void, Never>?
 
     // Git changes overlay state (passed from RootView)
     @Binding var showingGitChanges: Bool
@@ -98,7 +99,6 @@ struct ContentView: View {
                         selectedWorktree = nextWorktree
                     }
                 )
-                .id(worktree.id)
                 .onChange(of: showingGitChanges) { showing in
                     if showing {
                         gitChangesWorktree = worktree
@@ -186,10 +186,15 @@ struct ContentView: View {
                 selectedRepository = nil
                 selectedWorktree = nil
             } else if let repo = newValue {
-                // Save last selected repository to workspace
+                // Save last selected repository to workspace (debounced to avoid blocking)
                 if let workspace = selectedWorkspace {
                     workspace.lastSelectedRepositoryId = repo.id
-                    try? viewContext.save()
+                    saveTask?.cancel()
+                    saveTask = Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        guard !Task.isCancelled else { return }
+                        try? viewContext.save()
+                    }
                 }
 
                 // Auto-select primary worktree when repository changes

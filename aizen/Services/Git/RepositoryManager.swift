@@ -207,13 +207,25 @@ class RepositoryManager: ObservableObject {
             }
         }
 
-        // Remove worktrees that no longer exist
-        for path in existingPaths {
-            if let worktree = existingWorktrees.first(where: { $0.path == path }) {
-                // Verify the directory doesn't exist before deleting
-                if !FileManager.default.fileExists(atPath: path) {
-                    viewContext.delete(worktree)
+        // Remove worktrees that no longer exist (parallel file checks)
+        let pathsToCheck = Array(existingPaths)
+        let existenceResults = await withTaskGroup(of: (String, Bool).self) { group in
+            for path in pathsToCheck {
+                group.addTask {
+                    (path, FileManager.default.fileExists(atPath: path))
                 }
+            }
+            var results: [String: Bool] = [:]
+            for await (path, exists) in group {
+                results[path] = exists
+            }
+            return results
+        }
+
+        for path in existingPaths {
+            if existenceResults[path] == false,
+               let worktree = existingWorktrees.first(where: { $0.path == path }) {
+                viewContext.delete(worktree)
             }
         }
     }
