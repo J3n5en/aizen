@@ -29,54 +29,16 @@ struct GitChangesOverlayView: View {
     var onPull: () -> Void
     var onPush: () -> Void
 
-    @StateObject private var diffViewModel: GitDiffViewModel
-    @State private var scrollToFile: String?
+    @State private var diffOutput: String = ""
     @State private var rightPanelWidth: CGFloat = 350
+    @State private var visibleFile: String?
+    @State private var scrollToFile: String?
+
+    @AppStorage("editorFontFamily") private var editorFontFamily: String = "Menlo"
+    @AppStorage("diffFontSize") private var diffFontSize: Double = 11.0
 
     private let minRightPanelWidth: CGFloat = 300
     private let maxRightPanelWidth: CGFloat = 500
-
-    init(
-        worktreePath: String,
-        repository: Repository,
-        repositoryManager: RepositoryManager,
-        gitStatus: GitStatus,
-        isOperationPending: Bool,
-        onClose: @escaping () -> Void,
-        onStageFile: @escaping (String) -> Void,
-        onUnstageFile: @escaping (String) -> Void,
-        onStageAll: @escaping (@escaping () -> Void) -> Void,
-        onUnstageAll: @escaping () -> Void,
-        onCommit: @escaping (String) -> Void,
-        onAmendCommit: @escaping (String) -> Void,
-        onCommitWithSignoff: @escaping (String) -> Void,
-        onSwitchBranch: @escaping (String) -> Void,
-        onCreateBranch: @escaping (String) -> Void,
-        onFetch: @escaping () -> Void,
-        onPull: @escaping () -> Void,
-        onPush: @escaping () -> Void
-    ) {
-        self.worktreePath = worktreePath
-        self.repository = repository
-        self.repositoryManager = repositoryManager
-        self.gitStatus = gitStatus
-        self.isOperationPending = isOperationPending
-        self.onClose = onClose
-        self.onStageFile = onStageFile
-        self.onUnstageFile = onUnstageFile
-        self.onStageAll = onStageAll
-        self.onUnstageAll = onUnstageAll
-        self.onCommit = onCommit
-        self.onAmendCommit = onAmendCommit
-        self.onCommitWithSignoff = onCommitWithSignoff
-        self.onSwitchBranch = onSwitchBranch
-        self.onCreateBranch = onCreateBranch
-        self.onFetch = onFetch
-        self.onPull = onPull
-        self.onPush = onPush
-        let untrackedSet = Set(gitStatus.untrackedFiles)
-        _diffViewModel = StateObject(wrappedValue: GitDiffViewModel(repoPath: worktreePath, untrackedFiles: untrackedSet))
-    }
 
     private var allChangedFiles: [String] {
         let files = Set(
@@ -150,14 +112,66 @@ struct GitChangesOverlayView: View {
             if allChangedFiles.isEmpty {
                 AllFilesDiffEmptyView()
             } else {
-                AllFilesDiffScrollView(
-                    files: allChangedFiles,
-                    worktreePath: worktreePath,
-                    diffViewModel: diffViewModel,
-                    scrollToFile: $scrollToFile,
-                    highlightedFile: diffViewModel.visibleFile
+                DiffView(
+                    diffOutput: diffOutput,
+                    fontSize: diffFontSize,
+                    fontFamily: editorFontFamily,
+                    repoPath: worktreePath,
+                    scrollToFile: scrollToFile,
+                    onFileVisible: { file in
+                        visibleFile = file
+                    },
+                    onOpenFile: { file in
+                        let fullPath = (worktreePath as NSString).appendingPathComponent(file)
+                        NotificationCenter.default.post(
+                            name: .openFileInEditor,
+                            object: nil,
+                            userInfo: ["path": fullPath]
+                        )
+                        onClose()
+                    }
                 )
             }
+        }
+        .task {
+            await loadFullDiff()
+        }
+    }
+
+    private func loadFullDiff() async {
+        let executor = GitCommandExecutor()
+        var output = ""
+
+        // Get diff for tracked files (--no-pager to avoid hanging)
+        if let headDiff = try? await executor.executeGit(arguments: ["--no-pager", "diff", "HEAD"], at: worktreePath) {
+            output = headDiff
+        } else if let basicDiff = try? await executor.executeGit(arguments: ["--no-pager", "diff"], at: worktreePath) {
+            output = basicDiff
+        }
+
+        // Add untracked files as "new file" diffs
+        for file in gitStatus.untrackedFiles {
+            let fullPath = (worktreePath as NSString).appendingPathComponent(file)
+            if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) {
+                let lines = content.components(separatedBy: .newlines)
+                var fileDiff = "diff --git a/\(file) b/\(file)\n"
+                fileDiff += "new file mode 100644\n"
+                fileDiff += "--- /dev/null\n"
+                fileDiff += "+++ b/\(file)\n"
+                fileDiff += "@@ -0,0 +1,\(lines.count) @@\n"
+                for line in lines {
+                    fileDiff += "+\(line)\n"
+                }
+                output += fileDiff
+            }
+        }
+
+        diffOutput = output
+    }
+
+    private func reloadDiff() {
+        Task {
+            await loadFullDiff()
         }
     }
 
@@ -195,68 +209,55 @@ struct GitChangesOverlayView: View {
             onClose: onClose,
             gitStatus: gitStatus,
             isOperationPending: isOperationPending,
-            selectedDiffFile: diffViewModel.visibleFile,
+            selectedDiffFile: visibleFile,
             onStageFile: { file in
                 onStageFile(file)
-                Task {
-                    await diffViewModel.invalidateFile(file)
-                }
+                reloadDiff()
             },
             onUnstageFile: { file in
                 onUnstageFile(file)
-                Task {
-                    await diffViewModel.invalidateFile(file)
-                }
+                reloadDiff()
             },
             onStageAll: { completion in
                 onStageAll {
-                    Task {
-                        await diffViewModel.invalidateCache()
-                    }
+                    reloadDiff()
                     completion()
                 }
             },
             onUnstageAll: {
                 onUnstageAll()
-                Task {
-                    await diffViewModel.invalidateCache()
-                }
+                reloadDiff()
             },
             onCommit: { message in
                 onCommit(message)
-                Task {
-                    await diffViewModel.invalidateCache()
-                }
+                reloadDiff()
             },
             onAmendCommit: { message in
                 onAmendCommit(message)
-                Task {
-                    await diffViewModel.invalidateCache()
-                }
+                reloadDiff()
             },
             onCommitWithSignoff: { message in
                 onCommitWithSignoff(message)
-                Task {
-                    await diffViewModel.invalidateCache()
-                }
+                reloadDiff()
             },
             onSwitchBranch: { branch in
                 onSwitchBranch(branch)
-                Task {
-                    await diffViewModel.invalidateCache()
-                }
+                reloadDiff()
             },
             onCreateBranch: onCreateBranch,
             onFetch: onFetch,
             onPull: {
                 onPull()
-                Task {
-                    await diffViewModel.invalidateCache()
-                }
+                reloadDiff()
             },
             onPush: onPush,
             onFileClick: { file in
+                visibleFile = file  // Immediately highlight
                 scrollToFile = file
+                // Reset after a moment to allow re-clicking the same file
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    scrollToFile = nil
+                }
             }
         )
     }

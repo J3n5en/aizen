@@ -13,7 +13,7 @@ struct WorktreeDetailView: View {
     @ObservedObject var worktree: Worktree
     @ObservedObject var repositoryManager: RepositoryManager
     @ObservedObject var appDetector = AppDetector.shared
-    @Binding var showingGitChanges: Bool
+    @Binding var gitChangesContext: GitChangesContext?
     var onWorktreeDeleted: ((Worktree?) -> Void)?
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen", category: "WorktreeDetailView")
@@ -36,11 +36,11 @@ struct WorktreeDetailView: View {
     @State private var fileSearchWindowController: FileSearchWindowController?
     @State private var fileToOpenFromSearch: String?
 
-    init(worktree: Worktree, repositoryManager: RepositoryManager, tabStateManager: WorktreeTabStateManager, showingGitChanges: Binding<Bool>, onWorktreeDeleted: ((Worktree?) -> Void)? = nil) {
+    init(worktree: Worktree, repositoryManager: RepositoryManager, tabStateManager: WorktreeTabStateManager, gitChangesContext: Binding<GitChangesContext?>, onWorktreeDeleted: ((Worktree?) -> Void)? = nil) {
         self.worktree = worktree
         self.repositoryManager = repositoryManager
         self.tabStateManager = tabStateManager
-        _showingGitChanges = showingGitChanges
+        _gitChangesContext = gitChangesContext
         self.onWorktreeDeleted = onWorktreeDeleted
         _viewModel = StateObject(wrappedValue: WorktreeViewModel(worktree: worktree, repositoryManager: repositoryManager))
         _gitRepositoryService = StateObject(wrappedValue: GitRepositoryService(worktreePath: worktree.path ?? ""))
@@ -255,11 +255,19 @@ struct WorktreeDetailView: View {
         }
     }
     
+    private var showingGitChanges: Bool {
+        gitChangesContext != nil
+    }
+
     @ViewBuilder
     private var gitSidebarButton: some View {
         let button = Button(action: {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                showingGitChanges.toggle()
+                if gitChangesContext == nil {
+                    gitChangesContext = GitChangesContext(worktree: worktree, service: gitRepositoryService)
+                } else {
+                    gitChangesContext = nil
+                }
             }
         }) {
             Label("Git Changes", systemImage: "sidebar.right")
@@ -440,6 +448,6 @@ struct WorktreeDetailView: View {
         worktree: Worktree(),
         repositoryManager: RepositoryManager(viewContext: PersistenceController.preview.container.viewContext),
         tabStateManager: WorktreeTabStateManager(),
-        showingGitChanges: .constant(false)
+        gitChangesContext: .constant(nil)
     )
 }

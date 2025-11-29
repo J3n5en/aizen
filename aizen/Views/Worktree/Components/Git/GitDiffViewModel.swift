@@ -14,6 +14,7 @@ class GitDiffViewModel: ObservableObject {
     @Published var loadedDiffs: [String: [DiffLine]] = [:]
     @Published var loadingFiles: Set<String> = []
     @Published var errors: [String: String] = [:]
+    @Published var isBatchLoading: Bool = true
     var visibleFile: String? // Not @Published to avoid re-renders
 
     private let cache: GitDiffCache
@@ -68,7 +69,7 @@ class GitDiffViewModel: ObservableObject {
                             at: self.repoPath
                         )
                     }
-                    lines = parseUnifiedDiff(diffOutput)
+                    lines = DiffParser.parseUnifiedDiff(diffOutput)
                 }
 
                 guard !Task.isCancelled else { return }
@@ -106,6 +107,70 @@ class GitDiffViewModel: ObservableObject {
     func invalidateCache() async {
         await cache.invalidateAll()
         loadedDiffs.removeAll()
+    }
+
+    /// Batch load diffs for multiple files in a single git call
+    func loadAllDiffs(for files: [String]) async {
+        let trackedFiles = files.filter { !untrackedFiles.contains($0) }
+        let filesToLoad = trackedFiles.filter { !loadedDiffs.keys.contains($0) && !loadingFiles.contains($0) }
+
+        // Also load untracked files
+        let untrackedToLoad = files.filter { untrackedFiles.contains($0) && !loadedDiffs.keys.contains($0) }
+
+        guard !filesToLoad.isEmpty || !untrackedToLoad.isEmpty else {
+            isBatchLoading = false
+            return
+        }
+
+        do {
+            // Load tracked files with single git diff
+            if !filesToLoad.isEmpty {
+                let executor = GitCommandExecutor()
+                var diffOutput: String
+                do {
+                    diffOutput = try await executor.executeGit(
+                        arguments: ["diff", "HEAD"],
+                        at: repoPath
+                    )
+                } catch {
+                    // HEAD doesn't exist (new repo), try diff without HEAD
+                    diffOutput = try await executor.executeGit(
+                        arguments: ["diff"],
+                        at: repoPath
+                    )
+                }
+
+                let parsedByFile = DiffParser.splitDiffByFile(diffOutput)
+
+                for file in filesToLoad {
+                    let lines = parsedByFile[file] ?? []
+                    loadedDiffs[file] = lines
+
+                    if !lines.isEmpty {
+                        let hash = computeHash(file + String(lines.count))
+                        await cache.cacheDiff(lines, for: file, contentHash: hash)
+                    }
+                }
+            }
+
+            // Load untracked files
+            for file in untrackedToLoad {
+                let lines = await loadUntrackedFileAsDiff(file)
+                loadedDiffs[file] = lines
+
+                if !lines.isEmpty {
+                    let hash = computeHash(file + String(lines.count))
+                    await cache.cacheDiff(lines, for: file, contentHash: hash)
+                }
+            }
+
+            isBatchLoading = false
+        } catch {
+            for file in filesToLoad {
+                errors[file] = error.localizedDescription
+            }
+            isBatchLoading = false
+        }
     }
 
     func invalidateFile(_ file: String) async {

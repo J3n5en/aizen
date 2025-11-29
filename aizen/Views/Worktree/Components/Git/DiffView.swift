@@ -2,312 +2,585 @@
 //  DiffView.swift
 //  aizen
 //
-//  Unified inline diff viewer for git changes
+//  NSTableView-based diff renderer for git changes
 //
 
 import SwiftUI
+import AppKit
 
-struct DiffView: View {
-    let fileName: String
-    let filePath: String
-    let repoPath: String
-    let onClose: () -> Void
+struct DiffView: NSViewRepresentable {
+    // Input mode 1: Raw diff string (for multi-file view)
+    private let diffOutput: String?
 
-    @State private var diffLines: [DiffLine] = []
-    @State private var isLoading: Bool = true
-    @State private var error: String?
+    // Input mode 2: Pre-parsed lines (for single-file view)
+    private let preloadedLines: [DiffLine]?
 
-    @AppStorage("editorFontFamily") private var editorFontFamily: String = "Menlo"
-    @AppStorage("editorFontSize") private var editorFontSize: Double = 12.0
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                FileIconView(path: filePath, size: 13)
-                Text(fileName)
-                    .font(.system(size: 13, weight: .semibold))
-
-                Spacer()
-
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(height: 33)
-
-            Divider()
-
-            // Content
-            if isLoading {
-                VStack {
-                    Spacer()
-                    ProgressView()
-                    Text("Loading diff...")
-                        .foregroundColor(.secondary)
-                        .padding(.top)
-                    Spacer()
-                }
-            } else if let error = error {
-                VStack {
-                    Spacer()
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.orange)
-                    Text(error)
-                        .foregroundColor(.secondary)
-                        .padding(.top)
-                    Spacer()
-                }
-            } else if diffLines.isEmpty {
-                VStack {
-                    Spacer()
-                    Image(systemName: "doc.text")
-                        .font(.largeTitle)
-                        .foregroundColor(.secondary)
-                    Text("No changes to display")
-                        .foregroundColor(.secondary)
-                        .padding(.top)
-                    Spacer()
-                }
-            } else {
-                ScrollView(.vertical, showsIndicators: true) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(diffLines) { line in
-                            DiffLineView(
-                                line: line,
-                                fontSize: editorFontSize,
-                                fontFamily: editorFontFamily
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea(edges: .bottom)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: filePath) {
-            await loadDiff()
-        }
-    }
-
-    private func loadDiff() async {
-        isLoading = true
-        error = nil
-
-        do {
-            let executor = GitCommandExecutor()
-
-            // Try diff against HEAD first, fall back to plain diff for new repos without commits
-            var diffOutput: String
-            do {
-                diffOutput = try await executor.executeGit(
-                    arguments: ["diff", "HEAD", "--", filePath],
-                    at: repoPath
-                )
-            } catch {
-                // HEAD doesn't exist (new repo), try diff without HEAD
-                diffOutput = try await executor.executeGit(
-                    arguments: ["diff", "--", filePath],
-                    at: repoPath
-                )
-            }
-
-            diffLines = parseUnifiedDiff(diffOutput)
-            isLoading = false
-        } catch {
-            self.error = "Failed to load diff: \(error.localizedDescription)"
-            isLoading = false
-        }
-    }
-}
-
-// MARK: - Diff Line Model
-
-struct DiffLine: Identifiable, Hashable {
-    let lineNumber: Int
-    let oldLineNumber: String?
-    let newLineNumber: String?
-    let content: String
-    let type: DiffLineType
-
-    var id: Int { lineNumber }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(lineNumber)
-        hasher.combine(content)
-        hasher.combine(type)
-    }
-
-    static func == (lhs: DiffLine, rhs: DiffLine) -> Bool {
-        lhs.lineNumber == rhs.lineNumber &&
-        lhs.content == rhs.content &&
-        lhs.type == rhs.type
-    }
-}
-
-enum DiffLineType: Hashable {
-    case added
-    case deleted
-    case context
-    case header
-}
-
-// MARK: - Diff Line View
-
-struct DiffLineView: View {
-    let line: DiffLine
     let fontSize: Double
     let fontFamily: String
+    let repoPath: String
+    let showFileHeaders: Bool
+    let scrollToFile: String?
+    let onFileVisible: ((String) -> Void)?
+    let onOpenFile: ((String) -> Void)?
 
-    var body: some View {
-        HStack(spacing: 0) {
-            // Line numbers
-            HStack(spacing: 4) {
-                Text(line.oldLineNumber ?? "")
-                    .frame(width: 40, alignment: .trailing)
-                    .foregroundColor(.secondary)
-                    .opacity(line.oldLineNumber != nil ? 0.7 : 0)
+    // Init for raw diff output (used by GitChangesOverlayView)
+    init(
+        diffOutput: String,
+        fontSize: Double,
+        fontFamily: String,
+        repoPath: String = "",
+        scrollToFile: String? = nil,
+        onFileVisible: ((String) -> Void)? = nil,
+        onOpenFile: ((String) -> Void)? = nil
+    ) {
+        self.diffOutput = diffOutput
+        self.preloadedLines = nil
+        self.fontSize = fontSize
+        self.fontFamily = fontFamily
+        self.repoPath = repoPath
+        self.showFileHeaders = true
+        self.scrollToFile = scrollToFile
+        self.onFileVisible = onFileVisible
+        self.onOpenFile = onOpenFile
+    }
 
-                Text(line.newLineNumber ?? "")
-                    .frame(width: 40, alignment: .trailing)
-                    .foregroundColor(.secondary)
-                    .opacity(line.newLineNumber != nil ? 0.7 : 0)
+    // Init for pre-parsed lines (used by FileDiffSectionView)
+    init(
+        lines: [DiffLine],
+        fontSize: Double,
+        fontFamily: String,
+        repoPath: String = "",
+        showFileHeaders: Bool = false
+    ) {
+        self.diffOutput = nil
+        self.preloadedLines = lines
+        self.fontSize = fontSize
+        self.fontFamily = fontFamily
+        self.repoPath = repoPath
+        self.showFileHeaders = showFileHeaders
+        self.scrollToFile = nil
+        self.onFileVisible = nil
+        self.onOpenFile = nil
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        let tableView = NSTableView()
+
+        tableView.style = .plain
+        tableView.headerView = nil
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.selectionHighlightStyle = .none
+        tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.backgroundColor = .clear
+        tableView.allowsColumnReordering = false
+        tableView.allowsColumnResizing = false
+        tableView.allowsColumnSelection = false
+        tableView.rowSizeStyle = .custom
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("diff"))
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+
+        tableView.delegate = context.coordinator
+        tableView.dataSource = context.coordinator
+
+        scrollView.documentView = tableView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.backgroundColor = .clear
+        scrollView.drawsBackground = false
+
+        context.coordinator.tableView = tableView
+        context.coordinator.repoPath = repoPath
+        context.coordinator.showFileHeaders = showFileHeaders
+        context.coordinator.setupScrollObserver(for: scrollView)
+
+        if let lines = preloadedLines {
+            context.coordinator.loadLines(lines, fontSize: fontSize, fontFamily: fontFamily)
+        } else if let output = diffOutput {
+            context.coordinator.parseAndReload(diffOutput: output, fontSize: fontSize, fontFamily: fontFamily)
+        }
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.onFileVisible = onFileVisible
+        context.coordinator.onOpenFile = onOpenFile
+        context.coordinator.repoPath = repoPath
+        context.coordinator.showFileHeaders = showFileHeaders
+
+        if let lines = preloadedLines {
+            context.coordinator.loadLines(lines, fontSize: fontSize, fontFamily: fontFamily)
+        } else if let output = diffOutput {
+            context.coordinator.parseAndReload(diffOutput: output, fontSize: fontSize, fontFamily: fontFamily)
+        }
+
+        // Handle scroll to file request
+        if let file = scrollToFile, file != context.coordinator.lastScrolledFile {
+            context.coordinator.scrollToFile(file)
+            context.coordinator.lastScrolledFile = file
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(repoPath: repoPath, showFileHeaders: showFileHeaders, onOpenFile: onOpenFile)
+    }
+
+    class Coordinator: NSObject, NSTableViewDelegate, NSTableViewDataSource {
+        weak var tableView: NSTableView?
+        var rows: [DiffRow] = []
+        var rowHeight: CGFloat = 20
+        var fontSize: Double = 12
+        var fontFamily: String = "Menlo"
+        var repoPath: String = ""
+        var showFileHeaders: Bool = true
+        var onFileVisible: ((String) -> Void)?
+        var onOpenFile: ((String) -> Void)?
+        var lastScrolledFile: String?
+        private var lastDataHash: Int = 0
+        private var fileRowIndices: [String: Int] = [:]  // Map file path to row index
+        private var lastVisibleFile: String?
+        private var scrollObserver: NSObjectProtocol?
+
+        init(repoPath: String, showFileHeaders: Bool, onOpenFile: ((String) -> Void)?) {
+            self.repoPath = repoPath
+            self.showFileHeaders = showFileHeaders
+            self.onOpenFile = onOpenFile
+            super.init()
+        }
+
+        deinit {
+            if let observer = scrollObserver {
+                NotificationCenter.default.removeObserver(observer)
             }
-            .font(.custom(fontFamily, size: fontSize - 1))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-
-            // Diff marker
-            Text(diffMarker)
-                .frame(width: 20, alignment: .center)
-                .font(.custom(fontFamily, size: fontSize))
-                .foregroundColor(markerColor)
-                .padding(.vertical, 2)
-
-            // Line content
-            Text(line.content.isEmpty ? " " : line.content)
-                .font(.custom(fontFamily, size: fontSize))
-                .padding(.leading, 4)
-                .padding(.trailing, 8)
-                .padding(.vertical, 2)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(backgroundColor)
-    }
 
-    private var diffMarker: String {
-        switch line.type {
-        case .added: return "+"
-        case .deleted: return "-"
-        case .context: return " "
-        case .header: return ""
+        enum DiffRow {
+            case fileHeader(path: String)
+            case line(DiffLine)
         }
-    }
 
-    private var markerColor: Color {
-        switch line.type {
-        case .added: return .green
-        case .deleted: return .red
-        case .context: return .clear
-        case .header: return .secondary
+        func setupScrollObserver(for scrollView: NSScrollView) {
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateVisibleFile()
+            }
+            scrollView.contentView.postsBoundsChangedNotifications = true
         }
-    }
 
-    private var backgroundColor: Color {
-        switch line.type {
-        case .added: return Color.green.opacity(0.2)
-        case .deleted: return Color.red.opacity(0.2)
-        case .context: return Color.clear
-        case .header: return Color(NSColor.controlBackgroundColor).opacity(0.3)
-        }
-    }
-}
+        private func updateVisibleFile() {
+            guard let tableView = tableView else { return }
+            let visibleRect = tableView.visibleRect
 
-// MARK: - Diff Parsing
+            // Find the file header that best represents what's currently visible
+            var currentFile: String?
+            var lastFileBeforeVisible: String?
 
-func parseUnifiedDiff(_ diffOutput: String) -> [DiffLine] {
-    var lines: [DiffLine] = []
-    var lineCounter = 0
-    var oldLineNum = 0
-    var newLineNum = 0
+            for (index, row) in rows.enumerated() {
+                if case .fileHeader(let path) = row {
+                    let rowRect = tableView.rect(ofRow: index)
 
-    let diffLines = diffOutput.components(separatedBy: .newlines)
-
-    for line in diffLines {
-        if line.hasPrefix("@@") {
-            // Hunk header
-            let components = line.components(separatedBy: " ")
-            for component in components {
-                if component.hasPrefix("-") && !component.hasPrefix("---") {
-                    let rangeStr = String(component.dropFirst())
-                    if let num = rangeStr.components(separatedBy: ",").first, let start = Int(num) {
-                        oldLineNum = start - 1
+                    // If this header is above the visible area, remember it
+                    if rowRect.maxY <= visibleRect.minY + 20 {
+                        lastFileBeforeVisible = path
                     }
-                } else if component.hasPrefix("+") && !component.hasPrefix("+++") {
-                    let rangeStr = String(component.dropFirst())
-                    if let num = rangeStr.components(separatedBy: ",").first, let start = Int(num) {
-                        newLineNum = start - 1
+                    // If this header is within the visible area
+                    else if rowRect.minY < visibleRect.maxY {
+                        // If header is at or near the top of visible area, this is our file
+                        if rowRect.minY <= visibleRect.minY + 50 {
+                            currentFile = path
+                        } else if currentFile == nil {
+                            // First header we see in the visible area
+                            currentFile = path
+                        }
                     }
                 }
             }
 
-            lines.append(DiffLine(
-                lineNumber: lineCounter,
-                oldLineNumber: nil,
-                newLineNumber: nil,
-                content: line,
-                type: .header
-            ))
-            lineCounter += 1
-        } else if line.hasPrefix("+++") || line.hasPrefix("---") ||
-                  line.hasPrefix("diff ") || line.hasPrefix("index ") {
-            // Skip file headers
-            continue
-        } else if line.hasPrefix("+") {
-            // Added line
-            newLineNum += 1
-            lines.append(DiffLine(
-                lineNumber: lineCounter,
-                oldLineNumber: nil,
-                newLineNumber: String(newLineNum),
-                content: String(line.dropFirst()),
-                type: .added
-            ))
-            lineCounter += 1
-        } else if line.hasPrefix("-") {
-            // Deleted line
-            oldLineNum += 1
-            lines.append(DiffLine(
-                lineNumber: lineCounter,
-                oldLineNumber: String(oldLineNum),
-                newLineNumber: nil,
-                content: String(line.dropFirst()),
-                type: .deleted
-            ))
-            lineCounter += 1
-        } else if line.hasPrefix(" ") {
-            // Context line
-            oldLineNum += 1
-            newLineNum += 1
-            lines.append(DiffLine(
-                lineNumber: lineCounter,
-                oldLineNumber: String(oldLineNum),
-                newLineNumber: String(newLineNum),
-                content: String(line.dropFirst()),
-                type: .context
-            ))
-            lineCounter += 1
+            // If no header is visible but we scrolled past one, use that
+            if currentFile == nil {
+                currentFile = lastFileBeforeVisible
+            }
+
+            if let file = currentFile, file != lastVisibleFile {
+                lastVisibleFile = file
+                onFileVisible?(file)
+            }
+        }
+
+        func scrollToFile(_ file: String) {
+            guard let tableView = tableView,
+                  let rowIndex = fileRowIndices[file] else { return }
+
+            tableView.scrollRowToVisible(rowIndex)
+            // Scroll a bit more to show the header at the top
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                let rowRect = tableView.rect(ofRow: rowIndex)
+                tableView.enclosingScrollView?.contentView.scroll(to: NSPoint(x: 0, y: rowRect.minY))
+            }
+        }
+
+        // Load pre-parsed DiffLine array
+        func loadLines(_ lines: [DiffLine], fontSize: Double, fontFamily: String) {
+            let newHash = lines.hashValue ^ fontSize.hashValue ^ fontFamily.hashValue
+            guard newHash != lastDataHash else { return }
+
+            lastDataHash = newHash
+            self.fontSize = fontSize
+            self.fontFamily = fontFamily
+
+            let font = NSFont(name: fontFamily, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            rowHeight = ceil(font.ascender - font.descender + font.leading) + 6
+
+            rows = lines.map { .line($0) }
+            tableView?.reloadData()
+        }
+
+        // Parse raw diff output
+        func parseAndReload(diffOutput: String, fontSize: Double, fontFamily: String) {
+            let newHash = diffOutput.hashValue ^ fontSize.hashValue ^ fontFamily.hashValue
+            guard newHash != lastDataHash else { return }
+
+            lastDataHash = newHash
+            self.fontSize = fontSize
+            self.fontFamily = fontFamily
+
+            let font = NSFont(name: fontFamily, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            rowHeight = ceil(font.ascender - font.descender + font.leading) + 6
+
+            rows = parseDiff(diffOutput)
+            tableView?.reloadData()
+        }
+
+        private func parseDiff(_ output: String) -> [DiffRow] {
+            var result: [DiffRow] = []
+            var lineCounter = 0
+            var oldNum = 0
+            var newNum = 0
+            fileRowIndices.removeAll()
+
+            for line in output.components(separatedBy: .newlines) {
+                if line.hasPrefix("diff --git ") {
+                    continue
+                } else if line.hasPrefix("+++ b/") {
+                    let path = String(line.dropFirst(6))
+                    if showFileHeaders {
+                        fileRowIndices[path] = result.count  // Store index before appending
+                        result.append(.fileHeader(path: path))
+                    }
+                } else if line.hasPrefix("--- ") || line.hasPrefix("index ") || line.hasPrefix("new file") || line.hasPrefix("deleted file") {
+                    continue
+                } else if line.hasPrefix("@@") {
+                    // Parse hunk header
+                    let parts = line.components(separatedBy: " ")
+                    for part in parts {
+                        if part.hasPrefix("-") && !part.hasPrefix("---") {
+                            let numStr = part.dropFirst().components(separatedBy: ",").first ?? ""
+                            if let num = Int(numStr) {
+                                oldNum = max(0, num - 1)
+                            }
+                        } else if part.hasPrefix("+") && !part.hasPrefix("+++") {
+                            let numStr = part.dropFirst().components(separatedBy: ",").first ?? ""
+                            if let num = Int(numStr) {
+                                newNum = max(0, num - 1)
+                            }
+                        }
+                    }
+                    result.append(.line(DiffLine(
+                        lineNumber: lineCounter,
+                        oldLineNumber: nil,
+                        newLineNumber: nil,
+                        content: line,
+                        type: .header
+                    )))
+                    lineCounter += 1
+                } else if line.hasPrefix("+") {
+                    newNum += 1
+                    result.append(.line(DiffLine(
+                        lineNumber: lineCounter,
+                        oldLineNumber: nil,
+                        newLineNumber: String(newNum),
+                        content: String(line.dropFirst()),
+                        type: .added
+                    )))
+                    lineCounter += 1
+                } else if line.hasPrefix("-") {
+                    oldNum += 1
+                    result.append(.line(DiffLine(
+                        lineNumber: lineCounter,
+                        oldLineNumber: String(oldNum),
+                        newLineNumber: nil,
+                        content: String(line.dropFirst()),
+                        type: .deleted
+                    )))
+                    lineCounter += 1
+                } else if line.hasPrefix(" ") {
+                    oldNum += 1
+                    newNum += 1
+                    result.append(.line(DiffLine(
+                        lineNumber: lineCounter,
+                        oldLineNumber: String(oldNum),
+                        newLineNumber: String(newNum),
+                        content: String(line.dropFirst()),
+                        type: .context
+                    )))
+                    lineCounter += 1
+                }
+            }
+
+            return result
+        }
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            rows.count
+        }
+
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            guard row < rows.count else { return rowHeight }
+            switch rows[row] {
+            case .fileHeader:
+                return rowHeight + 12
+            case .line:
+                return rowHeight
+            }
+        }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard row < rows.count else { return nil }
+
+            switch rows[row] {
+            case .fileHeader(let path):
+                return makeFileHeaderCell(path: path, tableView: tableView)
+            case .line(let diffLine):
+                return makeLineCell(diffLine: diffLine, tableView: tableView)
+            }
+        }
+
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            guard row < rows.count else { return nil }
+            let rowView = DiffNSRowView()
+
+            switch rows[row] {
+            case .fileHeader:
+                rowView.lineType = nil
+            case .line(let diffLine):
+                rowView.lineType = diffLine.type
+            }
+
+            return rowView
+        }
+
+        private func makeFileHeaderCell(path: String, tableView: NSTableView) -> NSView {
+            let id = NSUserInterfaceItemIdentifier("FileHeader")
+            if let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FileHeaderCellView {
+                cell.configure(path: path, repoPath: repoPath, fontSize: fontSize, fontFamily: fontFamily, onOpenFile: onOpenFile)
+                return cell
+            }
+            let cell = FileHeaderCellView(identifier: id)
+            cell.configure(path: path, repoPath: repoPath, fontSize: fontSize, fontFamily: fontFamily, onOpenFile: onOpenFile)
+            return cell
+        }
+
+        private func makeLineCell(diffLine: DiffLine, tableView: NSTableView) -> NSView {
+            let id = NSUserInterfaceItemIdentifier("DiffLine")
+            if let cell = tableView.makeView(withIdentifier: id, owner: nil) as? LineCellView {
+                cell.configure(diffLine: diffLine, fontSize: fontSize, fontFamily: fontFamily)
+                return cell
+            }
+            let cell = LineCellView(identifier: id)
+            cell.configure(diffLine: diffLine, fontSize: fontSize, fontFamily: fontFamily)
+            return cell
         }
     }
+}
 
-    return lines
+// MARK: - Row View
+
+private class DiffNSRowView: NSTableRowView {
+    var lineType: DiffLineType? {
+        didSet { needsDisplay = true }
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        guard let type = lineType else {
+            // File header
+            NSColor.controlBackgroundColor.withAlphaComponent(0.8).setFill()
+            bounds.fill()
+            return
+        }
+        type.nsBackgroundColor.setFill()
+        bounds.fill()
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {}
+}
+
+// MARK: - File Header Cell
+
+private class FileHeaderCellView: NSTableCellView {
+    private let iconView = NSImageView()
+    private let pathLabel = NSTextField(labelWithString: "")
+    private let openButton = NSButton()
+    private var currentPath: String = ""
+    private var onOpenFile: ((String) -> Void)?
+
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        setupViews()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setupViews() {
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+
+        pathLabel.translatesAutoresizingMaskIntoConstraints = false
+        pathLabel.lineBreakMode = .byTruncatingMiddle
+        pathLabel.maximumNumberOfLines = 1
+
+        openButton.translatesAutoresizingMaskIntoConstraints = false
+        openButton.bezelStyle = .accessoryBarAction
+        openButton.isBordered = false
+        openButton.image = NSImage(systemSymbolName: "arrow.up.forward.square", accessibilityDescription: "Open in editor")
+        openButton.contentTintColor = .secondaryLabelColor
+        openButton.target = self
+        openButton.action = #selector(openFile)
+        openButton.toolTip = "Open in editor"
+
+        addSubview(iconView)
+        addSubview(pathLabel)
+        addSubview(openButton)
+
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+
+            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            openButton.leadingAnchor.constraint(greaterThanOrEqualTo: pathLabel.trailingAnchor, constant: 8),
+            openButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            openButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            openButton.widthAnchor.constraint(equalToConstant: 20),
+            openButton.heightAnchor.constraint(equalToConstant: 20)
+        ])
+    }
+
+    @objc private func openFile() {
+        onOpenFile?(currentPath)
+    }
+
+    func configure(path: String, repoPath: String, fontSize: Double, fontFamily: String, onOpenFile: ((String) -> Void)?) {
+        currentPath = path
+        self.onOpenFile = onOpenFile
+
+        pathLabel.stringValue = path
+        pathLabel.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
+
+        let fullPath = (repoPath as NSString).appendingPathComponent(path)
+        Task { @MainActor in
+            if let icon = await FileIconService.shared.icon(forFile: fullPath, size: CGSize(width: 16, height: 16)) {
+                self.iconView.image = icon
+            } else {
+                self.iconView.image = NSWorkspace.shared.icon(forFileType: (path as NSString).pathExtension)
+            }
+        }
+    }
+}
+
+// MARK: - Line Cell
+
+private class LineCellView: NSTableCellView {
+    private let oldNumLabel = NSTextField(labelWithString: "")
+    private let newNumLabel = NSTextField(labelWithString: "")
+    private let markerLabel = NSTextField(labelWithString: "")
+    private let contentLabel = NSTextField(labelWithString: "")
+    private let lineNumBg = NSView()
+
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        setupViews()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setupViews() {
+        lineNumBg.wantsLayer = true
+        lineNumBg.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.5).cgColor
+        lineNumBg.translatesAutoresizingMaskIntoConstraints = false
+
+        [oldNumLabel, newNumLabel].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            $0.alignment = .right
+            $0.textColor = .tertiaryLabelColor
+        }
+
+        markerLabel.translatesAutoresizingMaskIntoConstraints = false
+        markerLabel.alignment = .center
+
+        contentLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentLabel.lineBreakMode = .byClipping
+        contentLabel.maximumNumberOfLines = 1
+        contentLabel.isSelectable = true
+
+        addSubview(lineNumBg)
+        addSubview(oldNumLabel)
+        addSubview(newNumLabel)
+        addSubview(markerLabel)
+        addSubview(contentLabel)
+
+        NSLayoutConstraint.activate([
+            lineNumBg.leadingAnchor.constraint(equalTo: leadingAnchor),
+            lineNumBg.topAnchor.constraint(equalTo: topAnchor),
+            lineNumBg.bottomAnchor.constraint(equalTo: bottomAnchor),
+            lineNumBg.widthAnchor.constraint(equalToConstant: 96),
+
+            oldNumLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            oldNumLabel.widthAnchor.constraint(equalToConstant: 36),
+            oldNumLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            newNumLabel.leadingAnchor.constraint(equalTo: oldNumLabel.trailingAnchor, constant: 8),
+            newNumLabel.widthAnchor.constraint(equalToConstant: 36),
+            newNumLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            markerLabel.leadingAnchor.constraint(equalTo: lineNumBg.trailingAnchor, constant: 4),
+            markerLabel.widthAnchor.constraint(equalToConstant: 16),
+            markerLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            contentLabel.leadingAnchor.constraint(equalTo: markerLabel.trailingAnchor, constant: 4),
+            contentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            contentLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    func configure(diffLine: DiffLine, fontSize: Double, fontFamily: String) {
+        let font = NSFont(name: fontFamily, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let smallFont = NSFont(name: fontFamily, size: fontSize - 1) ?? NSFont.monospacedSystemFont(ofSize: fontSize - 1, weight: .regular)
+
+        oldNumLabel.stringValue = diffLine.oldLineNumber ?? ""
+        oldNumLabel.font = smallFont
+        oldNumLabel.alphaValue = diffLine.oldLineNumber != nil ? 1 : 0
+
+        newNumLabel.stringValue = diffLine.newLineNumber ?? ""
+        newNumLabel.font = smallFont
+        newNumLabel.alphaValue = diffLine.newLineNumber != nil ? 1 : 0
+
+        markerLabel.stringValue = diffLine.type.marker
+        markerLabel.font = font
+        markerLabel.textColor = diffLine.type.nsMarkerColor
+
+        contentLabel.stringValue = diffLine.content.isEmpty ? " " : diffLine.content
+        contentLabel.font = font
+    }
 }

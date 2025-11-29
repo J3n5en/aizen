@@ -34,18 +34,16 @@ struct ContentView: View {
     @State private var saveTask: Task<Void, Never>?
 
     // Git changes overlay state (passed from RootView)
-    @Binding var showingGitChanges: Bool
-    @Binding var gitChangesWorktree: Worktree?
+    @Binding var gitChangesContext: GitChangesContext?
 
     // Persistent selection storage
     @AppStorage("selectedWorkspaceId") private var selectedWorkspaceId: String?
     @AppStorage("selectedRepositoryId") private var selectedRepositoryId: String?
     @AppStorage("selectedWorktreeId") private var selectedWorktreeId: String?
 
-    init(context: NSManagedObjectContext, repositoryManager: RepositoryManager, showingGitChanges: Binding<Bool>, gitChangesWorktree: Binding<Worktree?>) {
+    init(context: NSManagedObjectContext, repositoryManager: RepositoryManager, gitChangesContext: Binding<GitChangesContext?>) {
         self.repositoryManager = repositoryManager
-        _showingGitChanges = showingGitChanges
-        _gitChangesWorktree = gitChangesWorktree
+        _gitChangesContext = gitChangesContext
     }
 
     var body: some View {
@@ -94,16 +92,11 @@ struct ContentView: View {
                     worktree: worktree,
                     repositoryManager: repositoryManager,
                     tabStateManager: tabStateManager,
-                    showingGitChanges: $showingGitChanges,
+                    gitChangesContext: $gitChangesContext,
                     onWorktreeDeleted: { nextWorktree in
                         selectedWorktree = nextWorktree
                     }
                 )
-                .onChange(of: showingGitChanges) { showing in
-                    if showing {
-                        gitChangesWorktree = worktree
-                    }
-                }
             } else {
                 placeholderView(
                     titleKey: "contentView.selectWorktree",

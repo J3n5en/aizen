@@ -47,7 +47,7 @@ struct FileDiffSectionView: View {
         .background(isHighlighted ? Color.accentColor.opacity(0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .onAppear {
-            if isExpanded && diffLines == nil && !isLoading {
+            if isExpanded && diffLines == nil && !isLoading && !diffViewModel.isBatchLoading {
                 loadDiff()
             }
         }
@@ -56,7 +56,7 @@ struct FileDiffSectionView: View {
             loadTask = nil
         }
         .onChange(of: isExpanded) { expanded in
-            if expanded && diffLines == nil && !isLoading {
+            if expanded && diffLines == nil && !isLoading && !diffViewModel.isBatchLoading {
                 loadDiff()
             } else if !expanded {
                 loadTask?.cancel()
@@ -138,7 +138,7 @@ struct FileDiffSectionView: View {
             } else {
                 diffContentView(lines)
             }
-        } else if isLoading {
+        } else if isLoading || diffViewModel.isBatchLoading {
             loadingView
         } else {
             Color.clear.frame(height: 1)
@@ -183,15 +183,12 @@ struct FileDiffSectionView: View {
     }
 
     private func diffContentView(_ lines: [DiffLine]) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(lines) { line in
-                DiffLineView(
-                    line: line,
-                    fontSize: diffFontSize,
-                    fontFamily: editorFontFamily
-                )
-            }
-        }
+        DiffView(
+            lines: lines,
+            fontSize: diffFontSize,
+            fontFamily: editorFontFamily,
+            repoPath: worktreePath
+        )
     }
 
     private func loadDiff() {

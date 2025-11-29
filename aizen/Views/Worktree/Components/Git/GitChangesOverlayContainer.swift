@@ -2,7 +2,7 @@
 //  GitChangesOverlayContainer.swift
 //  aizen
 //
-//  Container that manages GitRepositoryService for the overlay
+//  Container that wraps GitChangesOverlayView with service injection
 //
 
 import SwiftUI
@@ -12,24 +12,10 @@ struct GitChangesOverlayContainer: View {
     let worktree: Worktree
     let repository: Repository
     let repositoryManager: RepositoryManager
+    @ObservedObject var gitRepositoryService: GitRepositoryService
     @Binding var showingGitChanges: Bool
 
-    @StateObject private var gitRepositoryService: GitRepositoryService
-
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen", category: "GitChangesOverlay")
-
-    init(
-        worktree: Worktree,
-        repository: Repository,
-        repositoryManager: RepositoryManager,
-        showingGitChanges: Binding<Bool>
-    ) {
-        self.worktree = worktree
-        self.repository = repository
-        self.repositoryManager = repositoryManager
-        _showingGitChanges = showingGitChanges
-        _gitRepositoryService = StateObject(wrappedValue: GitRepositoryService(worktreePath: worktree.path ?? ""))
-    }
 
     private var gitOperations: WorktreeGitOperations {
         WorktreeGitOperations(
@@ -63,8 +49,5 @@ struct GitChangesOverlayContainer: View {
             onPull: gitOperations.pull,
             onPush: gitOperations.push
         )
-        .onAppear {
-            gitRepositoryService.reloadStatus()
-        }
     }
 }
