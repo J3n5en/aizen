@@ -76,7 +76,7 @@ struct DiffView: NSViewRepresentable {
         tableView.allowsColumnReordering = false
         tableView.allowsColumnResizing = false
         tableView.allowsColumnSelection = false
-        tableView.rowSizeStyle = .custom
+        tableView.usesAutomaticRowHeights = true
         tableView.gridStyleMask = []
         tableView.gridColor = .clear
 
@@ -379,16 +379,6 @@ struct DiffView: NSViewRepresentable {
             rows.count
         }
 
-        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            guard row < rows.count else { return rowHeight }
-            switch rows[row] {
-            case .fileHeader:
-                return rowHeight + 12
-            case .line, .lazyLine:
-                return rowHeight
-            }
-        }
-
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard row < rows.count else { return nil }
 
@@ -505,16 +495,17 @@ private class FileHeaderCellView: NSTableCellView {
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            iconView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pathLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
             openButton.leadingAnchor.constraint(greaterThanOrEqualTo: pathLabel.trailingAnchor, constant: 8),
             openButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            openButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            openButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             openButton.widthAnchor.constraint(equalToConstant: 20),
             openButton.heightAnchor.constraint(equalToConstant: 20)
         ])
@@ -574,9 +565,11 @@ private class LineCellView: NSTableCellView {
         markerLabel.alignment = .center
 
         contentLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentLabel.lineBreakMode = .byClipping
-        contentLabel.maximumNumberOfLines = 1
+        contentLabel.lineBreakMode = .byWordWrapping
+        contentLabel.maximumNumberOfLines = 0
         contentLabel.isSelectable = true
+        contentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        contentLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         addSubview(lineNumBg)
         addSubview(oldNumLabel)
@@ -592,19 +585,20 @@ private class LineCellView: NSTableCellView {
 
             oldNumLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             oldNumLabel.widthAnchor.constraint(equalToConstant: 22),
-            oldNumLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            oldNumLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
 
             newNumLabel.leadingAnchor.constraint(equalTo: oldNumLabel.trailingAnchor, constant: 4),
             newNumLabel.widthAnchor.constraint(equalToConstant: 22),
-            newNumLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            newNumLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
 
             markerLabel.leadingAnchor.constraint(equalTo: lineNumBg.trailingAnchor, constant: 4),
             markerLabel.widthAnchor.constraint(equalToConstant: 16),
-            markerLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            markerLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
 
             contentLabel.leadingAnchor.constraint(equalTo: markerLabel.trailingAnchor, constant: 4),
             contentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            contentLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            contentLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            contentLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3)
         ])
     }
 
