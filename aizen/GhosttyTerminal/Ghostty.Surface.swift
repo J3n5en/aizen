@@ -67,6 +67,15 @@ extension Ghostty {
             ghostty_surface_mouse_captured(surface)
         }
 
+        /// Whether closing this terminal requires user confirmation.
+        ///
+        /// Returns true if the terminal is busy (command running, cursor not at prompt).
+        /// Uses Ghostty's internal prompt detection to avoid confirming idle shells.
+        @MainActor
+        var needsConfirmQuit: Bool {
+            ghostty_surface_needs_confirm_quit(surface)
+        }
+
         /// Send a mouse button event to the terminal.
         ///
         /// This sends a complete mouse button event including the button state (press/release),
@@ -128,6 +137,30 @@ extension Ghostty {
             return action.withCString { cString in
                 ghostty_surface_binding_action(surface, cString, UInt(len - 1))
             }
+        }
+
+        /// Terminal grid size information
+        struct TerminalSize {
+            let columns: UInt16
+            let rows: UInt16
+            let widthPx: UInt32
+            let heightPx: UInt32
+            let cellWidthPx: UInt32
+            let cellHeightPx: UInt32
+        }
+
+        /// Get current terminal size
+        @MainActor
+        func terminalSize() -> TerminalSize {
+            let cSize = ghostty_surface_size(surface)
+            return TerminalSize(
+                columns: cSize.columns,
+                rows: cSize.rows,
+                widthPx: cSize.width_px,
+                heightPx: cSize.height_px,
+                cellWidthPx: cSize.cell_width_px,
+                cellHeightPx: cSize.cell_height_px
+            )
         }
     }
 }

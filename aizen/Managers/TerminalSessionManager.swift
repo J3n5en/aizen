@@ -34,23 +34,23 @@ class TerminalSessionManager {
         terminals = terminals.filter { !$0.key.hasPrefix(prefix) }
     }
 
-    /// Check if any terminal pane has a running process (not exited)
+    /// Check if any terminal pane needs confirmation before closing
     @MainActor
     func hasRunningProcess(for sessionId: UUID, paneIds: [String]) -> Bool {
         for paneId in paneIds {
             if let terminal = getTerminal(for: sessionId, paneId: paneId),
-               !terminal.processExited {
+               terminal.needsConfirmQuit {
                 return true
             }
         }
         return false
     }
 
-    /// Check if a specific pane has a running process
+    /// Check if a specific pane needs confirmation before closing
     @MainActor
     func paneHasRunningProcess(for sessionId: UUID, paneId: String) -> Bool {
         if let terminal = getTerminal(for: sessionId, paneId: paneId) {
-            return !terminal.processExited
+            return terminal.needsConfirmQuit
         }
         return false
     }

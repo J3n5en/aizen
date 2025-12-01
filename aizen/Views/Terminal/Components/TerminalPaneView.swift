@@ -26,6 +26,10 @@ struct TerminalPaneView: View {
     @State private var isLoading: Bool = false
     @State private var progressState: GhosttyProgressState = .remove
     @State private var progressValue: Int? = nil
+    @State private var isResizing: Bool = false
+    @State private var terminalColumns: UInt16 = 0
+    @State private var terminalRows: UInt16 = 0
+    @State private var hideWorkItem: DispatchWorkItem?
 
     @AppStorage("terminalNotificationsEnabled") private var notificationsEnabled = true
     @AppStorage("terminalProgressEnabled") private var progressEnabled = true
@@ -68,6 +72,17 @@ struct TerminalPaneView: View {
                         .padding(.horizontal, 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
+
+                if isResizing {
+                    ResizeOverlay(columns: terminalColumns, rows: terminalRows)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                        .animation(.easeOut(duration: 0.1), value: isResizing)
+                }
+            }
+            .onChange(of: geo.size) { _ in
+                handleSizeChange()
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
@@ -97,6 +112,28 @@ struct TerminalPaneView: View {
                 }
             }
         }
+        .onDisappear {
+            hideWorkItem?.cancel()
+            hideWorkItem = nil
+        }
+    }
+
+    private func handleSizeChange() {
+        guard let sessionId = session.id,
+              let terminal = sessionManager.getTerminal(for: sessionId, paneId: paneId),
+              let termSize = terminal.terminalSize() else { return }
+
+        terminalColumns = termSize.columns
+        terminalRows = termSize.rows
+
+        isResizing = true
+
+        hideWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            isResizing = false
+        }
+        hideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
     }
 
     private var progressOverlay: some View {

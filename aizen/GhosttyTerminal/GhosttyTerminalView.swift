@@ -322,6 +322,18 @@ class GhosttyTerminalView: NSView {
         guard let surface = surface?.unsafeCValue else { return true }
         return ghostty_surface_process_exited(surface)
     }
+
+    /// Check if closing this terminal needs confirmation
+    var needsConfirmQuit: Bool {
+        guard let surface = surface else { return false }
+        return surface.needsConfirmQuit
+    }
+
+    /// Get current terminal grid size
+    func terminalSize() -> Ghostty.Surface.TerminalSize? {
+        guard let surface = surface else { return nil }
+        return surface.terminalSize()
+    }
 }
 
 // MARK: - NSTextInputClient Implementation
