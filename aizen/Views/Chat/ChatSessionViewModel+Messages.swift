@@ -13,9 +13,10 @@ extension ChatSessionViewModel {
 
     func sendMessage() {
         let messageText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !messageText.isEmpty else { return }
-
         let messageAttachments = attachments
+
+        // Allow sending if we have text OR attachments
+        guard !messageText.isEmpty || !messageAttachments.isEmpty else { return }
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             inputText = ""

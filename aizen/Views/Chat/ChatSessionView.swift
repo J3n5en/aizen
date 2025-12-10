@@ -244,8 +244,8 @@ struct ChatSessionView: View {
 
     private var attachmentChipsView: some View {
         HStack(spacing: 8) {
-            ForEach(viewModel.attachments, id: \.self) { attachment in
-                AttachmentChipWithDelete(url: attachment) {
+            ForEach(viewModel.attachments) { attachment in
+                ChatAttachmentChip(attachment: attachment) {
                     viewModel.removeAttachment(attachment)
                 }
             }

@@ -29,6 +29,7 @@ struct GitChangesOverlayContainer: View {
     var body: some View {
         GitChangesOverlayView(
             worktreePath: worktree.path ?? "",
+            worktree: worktree,
             repository: repository,
             repositoryManager: repositoryManager,
             gitStatus: gitRepositoryService.currentStatus,

@@ -328,6 +328,25 @@ struct WorktreeDetailView: View {
                     openFile(path)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .sendMessageToChat)) { notification in
+                handleSendMessageToChat(notification)
+            }
+    }
+
+    private func handleSendMessageToChat(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let sessionId = userInfo["sessionId"] as? UUID,
+              let message = userInfo["message"] as? String else {
+            return
+        }
+
+        // Store review comments as an attachment (user can add context before sending)
+        let attachment = ChatAttachment.reviewComments(message)
+        ChatSessionManager.shared.setPendingAttachments([attachment], for: sessionId)
+
+        // Switch to chat tab and select the session
+        selectedTab = "chat"
+        viewModel.selectedChatSessionId = sessionId
     }
 
     var body: some View {

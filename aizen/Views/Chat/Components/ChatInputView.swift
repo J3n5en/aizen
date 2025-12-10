@@ -80,7 +80,119 @@ struct CustomTextEditor: NSViewRepresentable {
     }
 }
 
-// MARK: - Attachment Chip with Delete
+// MARK: - Chat Attachment Chip
+
+struct ChatAttachmentChip: View {
+    let attachment: ChatAttachment
+    let onDelete: () -> Void
+
+    @State private var showingDetail = false
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                showingDetail = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: attachment.iconName)
+                        .font(.system(size: 10))
+                        .foregroundStyle(iconColor)
+
+                    Text(attachment.displayName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                onDelete()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .opacity(isHovering ? 1 : 0.6)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(backgroundFill)
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
+        .sheet(isPresented: $showingDetail) {
+            attachmentDetailView
+        }
+    }
+
+    private var iconColor: Color {
+        switch attachment {
+        case .file:
+            return .secondary
+        case .reviewComments:
+            return .blue
+        }
+    }
+
+    private var backgroundFill: Color {
+        switch attachment {
+        case .file:
+            return Color(NSColor.controlBackgroundColor)
+        case .reviewComments:
+            return Color.blue.opacity(0.15)
+        }
+    }
+
+    @ViewBuilder
+    private var attachmentDetailView: some View {
+        switch attachment {
+        case .file(let url):
+            InputAttachmentDetailView(url: url)
+        case .reviewComments(let content):
+            ReviewCommentsDetailView(content: content)
+        }
+    }
+}
+
+// MARK: - Review Comments Detail View
+
+struct ReviewCommentsDetailView: View {
+    let content: String
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Review Comments")
+                    .font(.headline)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                MarkdownRenderedView(content: content)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+        }
+        .frame(width: 500, height: 400)
+    }
+}
+
+// MARK: - Attachment Chip with Delete (legacy, for URL only)
 
 struct AttachmentChipWithDelete: View {
     let url: URL

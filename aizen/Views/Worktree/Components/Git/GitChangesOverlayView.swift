@@ -9,6 +9,7 @@ import SwiftUI
 
 struct GitChangesOverlayView: View {
     let worktreePath: String
+    let worktree: Worktree?
     let repository: Repository
     let repositoryManager: RepositoryManager
     let gitStatus: GitStatus
@@ -31,14 +32,24 @@ struct GitChangesOverlayView: View {
 
     @State private var diffOutput: String = ""
     @State private var rightPanelWidth: CGFloat = 350
+    @State private var leftPanelWidth: CGFloat = 250
+    @State private var leftPanelWidthStart: CGFloat = 250
     @State private var visibleFile: String?
     @State private var scrollToFile: String?
+    @State private var showCommentsPanel: Bool = false
+    @State private var commentPopoverLine: DiffLine?
+    @State private var commentPopoverFilePath: String?
+    @State private var showAgentPicker: Bool = false
+
+    @StateObject private var reviewManager = ReviewSessionManager()
 
     @AppStorage("editorFontFamily") private var editorFontFamily: String = "Menlo"
     @AppStorage("diffFontSize") private var diffFontSize: Double = 11.0
 
     private let minRightPanelWidth: CGFloat = 300
     private let maxRightPanelWidth: CGFloat = 500
+    private let minLeftPanelWidth: CGFloat = 200
+    private let maxLeftPanelWidth: CGFloat = 400
 
     private var allChangedFiles: [String] {
         let files = Set(
@@ -52,9 +63,18 @@ struct GitChangesOverlayView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left: All files diff scroll
-            leftPanel
-                .frame(maxWidth: .infinity)
+            // Left: Comments panel (auto-show when comments exist)
+            if showCommentsPanel {
+                commentsPanel
+                    .frame(width: leftPanelWidth)
+
+                commentsPanelDivider
+            }
+
+            // Center: All files diff scroll
+            diffPanel
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
 
             // Divider
             resizableDivider
@@ -63,13 +83,69 @@ struct GitChangesOverlayView: View {
             rightPanel
                 .frame(width: rightPanelWidth)
         }
+        .animation(nil, value: gitStatus)
         .background(Color(NSColor.windowBackgroundColor))
         .onExitCommand {
             onClose()
         }
+        .onAppear {
+            reviewManager.load(for: worktreePath)
+        }
+        .onChange(of: reviewManager.comments.count) { newCount in
+            // Auto-show panel when first comment is added
+            if newCount > 0 && !showCommentsPanel {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showCommentsPanel = true
+                }
+            }
+        }
+        .sheet(item: $commentPopoverLine) { line in
+            CommentPopover(
+                diffLine: line,
+                filePath: commentPopoverFilePath ?? "",
+                existingComment: reviewManager.comments.first {
+                    $0.filePath == commentPopoverFilePath && $0.lineNumber == line.lineNumber
+                },
+                onSave: { text in
+                    if let existing = reviewManager.comments.first(where: {
+                        $0.filePath == commentPopoverFilePath && $0.lineNumber == line.lineNumber
+                    }) {
+                        reviewManager.updateComment(id: existing.id, comment: text)
+                    } else {
+                        reviewManager.addComment(for: line, filePath: commentPopoverFilePath ?? "", comment: text)
+                    }
+                    commentPopoverLine = nil
+                },
+                onCancel: {
+                    commentPopoverLine = nil
+                },
+                onDelete: reviewManager.comments.first(where: {
+                    $0.filePath == commentPopoverFilePath && $0.lineNumber == line.lineNumber
+                }).map { existing in
+                    {
+                        reviewManager.deleteComment(id: existing.id)
+                        commentPopoverLine = nil
+                    }
+                }
+            )
+        }
+        .sheet(isPresented: $showAgentPicker) {
+            SendToAgentSheet(
+                worktree: worktree,
+                commentsMarkdown: reviewManager.exportToMarkdown(),
+                onDismiss: {
+                    showAgentPicker = false
+                },
+                onSend: {
+                    // Clear comments after sending to agent
+                    reviewManager.clearAll()
+                    onClose()
+                }
+            )
+        }
     }
 
-    private var leftPanelHeader: some View {
+    private var diffPanelHeader: some View {
         HStack(spacing: 8) {
             Button { onClose() } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -89,6 +165,29 @@ struct GitChangesOverlayView: View {
 
             Spacer()
 
+            // Toggle comments panel button (with count badge)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showCommentsPanel.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: showCommentsPanel ? "text.bubble.fill" : "text.bubble")
+                        .font(.system(size: 11))
+                    if !reviewManager.comments.isEmpty {
+                        Text("\(reviewManager.comments.count)")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                }
+                .foregroundStyle(reviewManager.comments.isEmpty ? Color.secondary : Color.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(showCommentsPanel ? Color.blue.opacity(0.15) : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help(showCommentsPanel ? "Hide comments" : "Show comments")
+
             HStack(spacing: 8) {
                 Text("+\(gitStatus.additions)")
                     .foregroundStyle(.green)
@@ -104,13 +203,26 @@ struct GitChangesOverlayView: View {
         .background(Color(NSColor.windowBackgroundColor))
     }
 
-    private var leftPanel: some View {
+    private var diffPanel: some View {
         VStack(spacing: 0) {
-            leftPanelHeader
+            diffPanelHeader
             Divider()
 
             if allChangedFiles.isEmpty {
                 AllFilesDiffEmptyView()
+            } else if diffOutput.isEmpty {
+                // Loading state while diff is being fetched
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Loading diff...")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 DiffView(
                     diffOutput: diffOutput,
@@ -129,6 +241,11 @@ struct GitChangesOverlayView: View {
                             userInfo: ["path": fullPath]
                         )
                         onClose()
+                    },
+                    commentedLines: reviewManager.commentedLineKeys,
+                    onAddComment: { line, filePath in
+                        commentPopoverFilePath = filePath
+                        commentPopoverLine = line
                     }
                 )
             }
@@ -136,6 +253,72 @@ struct GitChangesOverlayView: View {
         .task {
             await loadFullDiff()
         }
+        .onChange(of: diffOutput) { _ in
+            validateCommentsAgainstDiff()
+        }
+    }
+
+    private func validateCommentsAgainstDiff() {
+        // Remove comments for files that are no longer in the diff
+        let filesInDiff = Set(allChangedFiles)
+        let commentsToRemove = reviewManager.comments.filter { !filesInDiff.contains($0.filePath) }
+
+        for comment in commentsToRemove {
+            reviewManager.deleteComment(id: comment.id)
+        }
+    }
+
+    private var commentsPanel: some View {
+        ReviewCommentsPanel(
+            reviewManager: reviewManager,
+            onScrollToLine: { filePath, lineNumber in
+                scrollToFile = filePath
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    scrollToFile = nil
+                }
+            },
+            onCopyAll: {
+                let markdown = reviewManager.exportToMarkdown()
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(markdown, forType: .string)
+            },
+            onSendToAgent: {
+                showAgentPicker = true
+            }
+        )
+    }
+
+    private var commentsPanelDivider: some View {
+        Rectangle()
+            .fill(Color(NSColor.separatorColor))
+            .frame(width: 1)
+            .overlay(
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(coordinateSpace: .global)
+                            .onChanged { value in
+                                let delta = value.translation.width
+                                let newWidth = leftPanelWidthStart + delta
+                                leftPanelWidth = min(max(newWidth, minLeftPanelWidth), maxLeftPanelWidth)
+                            }
+                            .onEnded { _ in
+                                leftPanelWidthStart = leftPanelWidth
+                            }
+                    )
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+            )
+            .onAppear {
+                leftPanelWidthStart = leftPanelWidth
+            }
     }
 
     private func loadFullDiff() async {

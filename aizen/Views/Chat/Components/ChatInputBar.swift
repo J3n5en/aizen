@@ -12,7 +12,7 @@ import os.log
 struct ChatInputBar: View {
     private let logger = Logger.chat
     @Binding var inputText: String
-    @Binding var attachments: [URL]
+    @Binding var attachments: [ChatAttachment]
     @Binding var isProcessing: Bool
     @Binding var showingVoiceRecording: Bool
     @Binding var showingAttachmentPicker: Bool
@@ -219,14 +219,16 @@ struct ChatInputBar: View {
         ) { result in
             if case .success(let urls) = result {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    attachments.append(contentsOf: urls)
+                    attachments.append(contentsOf: urls.map { .file($0) })
                 }
             }
         }
     }
 
     private var canSend: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isProcessing && isSessionReady
+        let hasText = !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasAttachments = !attachments.isEmpty
+        return (hasText || hasAttachments) && !isProcessing && isSessionReady
     }
 
     private var inputCornerRadius: CGFloat {

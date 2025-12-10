@@ -1,0 +1,245 @@
+//
+//  SendToAgentSheet.swift
+//  aizen
+//
+//  Sheet for selecting which agent/chat to send review comments to
+//
+
+import SwiftUI
+
+struct SendToAgentSheet: View {
+    let worktree: Worktree?
+    let commentsMarkdown: String
+    let onDismiss: () -> Void
+    let onSend: () -> Void
+
+    @State private var selectedOption: SendOption?
+
+    private var chatSessions: [ChatSession] {
+        guard let worktree = worktree else { return [] }
+        let sessions = (worktree.chatSessions as? Set<ChatSession>) ?? []
+        return sessions.sorted { ($0.createdAt ?? Date()) > ($1.createdAt ?? Date()) }
+    }
+
+    private var availableAgents: [AgentMetadata] {
+        AgentRegistry.shared.getEnabledAgents()
+    }
+
+    enum SendOption: Identifiable, Hashable {
+        case existingChat(UUID)
+        case newChat(String) // agent id
+
+        var id: String {
+            switch self {
+            case .existingChat(let uuid): return "existing-\(uuid.uuidString)"
+            case .newChat(let agent): return "new-\(agent)"
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            content
+            Divider()
+            footer
+        }
+        .frame(width: 340, height: 400)
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Send to Agent")
+                .font(.system(size: 14, weight: .semibold))
+            Spacer()
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Existing chats section
+                if !chatSessions.isEmpty {
+                    sectionHeader("Active Chats")
+
+                    ForEach(chatSessions, id: \.id) { session in
+                        chatSessionRow(session)
+                    }
+                }
+
+                // New chat section
+                sectionHeader("Start New Chat")
+
+                ForEach(availableAgents, id: \.name) { agent in
+                    newChatRow(agent)
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+    }
+
+    private func chatSessionRow(_ session: ChatSession) -> some View {
+        let isSelected = selectedOption == .existingChat(session.id ?? UUID())
+
+        return Button {
+            selectedOption = .existingChat(session.id ?? UUID())
+        } label: {
+            HStack(spacing: 10) {
+                if let agentName = session.agentName {
+                    AgentIconView(agent: agentName, size: 24)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.title ?? "Chat")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+
+                    if let date = session.createdAt {
+                        Text(date.formatted(.relative(presentation: .named)))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+            }
+            .padding(10)
+            .background(isSelected ? Color.blue.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func newChatRow(_ agent: AgentMetadata) -> some View {
+        let isSelected = selectedOption == .newChat(agent.id)
+
+        return Button {
+            selectedOption = .newChat(agent.id)
+        } label: {
+            HStack(spacing: 10) {
+                AgentIconView(agent: agent.id, size: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("New \(agent.name) Chat")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+
+                    Text("Start a new conversation")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+            }
+            .padding(10)
+            .background(isSelected ? Color.blue.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var footer: some View {
+        HStack {
+            Button("Cancel") {
+                onDismiss()
+            }
+            .keyboardShortcut(.escape, modifiers: [])
+
+            Spacer()
+
+            Button("Send") {
+                sendToAgent()
+            }
+            .keyboardShortcut(.return, modifiers: .command)
+            .buttonStyle(.borderedProminent)
+            .disabled(selectedOption == nil)
+        }
+        .padding(16)
+    }
+
+    private func sendToAgent() {
+        guard let option = selectedOption else { return }
+
+        switch option {
+        case .existingChat(let sessionId):
+            sendToExistingChat(sessionId: sessionId)
+        case .newChat(let agentId):
+            createNewChatAndSend(agentId: agentId)
+        }
+
+        onDismiss()
+        onSend()
+    }
+
+    private func sendToExistingChat(sessionId: UUID) {
+        Task { @MainActor in
+            guard let agentSession = ChatSessionManager.shared.getAgentSession(for: sessionId) else {
+                return
+            }
+
+            try? await agentSession.sendMessage(content: commentsMarkdown)
+        }
+    }
+
+    private func createNewChatAndSend(agentId: String) {
+        guard let worktree = worktree,
+              let context = worktree.managedObjectContext else { return }
+
+        let session = ChatSession(context: context)
+        session.id = UUID()
+        let displayName = AgentRegistry.shared.getMetadata(for: agentId)?.name ?? agentId.capitalized
+        session.title = displayName
+        session.agentName = agentId
+        session.createdAt = Date()
+        session.worktree = worktree
+
+        do {
+            try context.save()
+
+            // Post notification to switch to the new chat and send message
+            NotificationCenter.default.post(
+                name: .sendMessageToChat,
+                object: nil,
+                userInfo: [
+                    "sessionId": session.id as Any,
+                    "message": commentsMarkdown
+                ]
+            )
+        } catch {
+            print("Failed to create chat session: \(error)")
+        }
+    }
+}
+
+// MARK: - Notification Extension
+
+extension Notification.Name {
+    static let sendMessageToChat = Notification.Name("sendMessageToChat")
+}

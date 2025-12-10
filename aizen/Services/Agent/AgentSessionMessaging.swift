@@ -14,7 +14,7 @@ import os.log
 @MainActor
 extension AgentSession {
     /// Send a message to the agent with optional file attachments
-    func sendMessage(content: String, attachments: [URL] = []) async throws {
+    func sendMessage(content: String, attachments: [ChatAttachment] = []) async throws {
         guard let sessionId = sessionId, isActive else {
             throw AgentSessionError.sessionNotActive
         }
@@ -32,13 +32,24 @@ extension AgentSession {
         // Build content blocks array
         var contentBlocks: [ContentBlock] = []
 
-        // Add text content
-        contentBlocks.append(.text(TextContent(text: content, annotations: nil, _meta: nil)))
+        // Collect review comments to prepend to message
+        var reviewCommentsText = ""
+        for attachment in attachments {
+            if case .reviewComments(let markdown) = attachment {
+                reviewCommentsText += markdown + "\n\n"
+            }
+        }
 
-        // Add attachments as resource blocks
-        for attachmentURL in attachments {
-            if let resourceBlock = try? await createResourceBlock(from: attachmentURL) {
-                contentBlocks.append(resourceBlock)
+        // Add text content (with review comments prepended if any)
+        let fullContent = reviewCommentsText.isEmpty ? content : reviewCommentsText + content
+        contentBlocks.append(.text(TextContent(text: fullContent, annotations: nil, _meta: nil)))
+
+        // Add file attachments as resource blocks
+        for attachment in attachments {
+            if case .file(let url) = attachment {
+                if let resourceBlock = try? await createResourceBlock(from: url) {
+                    contentBlocks.append(resourceBlock)
+                }
             }
         }
 

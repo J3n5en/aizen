@@ -74,7 +74,9 @@ struct GitSidebarView: View {
             )
             .padding(12)
         }
+        .frame(maxHeight: .infinity)
         .background(.ultraThinMaterial)
+        .animation(nil, value: gitStatus)
         .sheet(isPresented: $showingBranchPicker) {
             BranchSelectorView(
                 repository: repository,

@@ -10,7 +10,7 @@ import AppKit
 
 // MARK: - Diff Line Type
 
-enum DiffLineType: Hashable {
+enum DiffLineType: String, Hashable, Codable {
     case added
     case deleted
     case context

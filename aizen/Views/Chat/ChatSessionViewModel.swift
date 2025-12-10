@@ -37,7 +37,7 @@ class ChatSessionViewModel: ObservableObject {
     @Published var isProcessing = false
     @Published var currentAgentSession: AgentSession?
     @Published var currentPermissionRequest: RequestPermissionRequest?
-    @Published var attachments: [URL] = []
+    @Published var attachments: [ChatAttachment] = []
     @Published var commandSuggestions: [AvailableCommand] = []
     @Published var timelineItems: [TimelineItem] = []
 
@@ -158,6 +158,10 @@ class ChatSessionViewModel: ObservableObject {
     func setupAgentSession() {
         guard let sessionId = session.id else { return }
 
+        // Check for pending input text or attachments (e.g., from review comments)
+        prefillInputTextIfNeeded()
+        loadPendingAttachmentsIfNeeded()
+
         if let existingSession = sessionManager.getAgentSession(for: sessionId) {
             currentAgentSession = existingSession
             updateDerivedState(from: existingSession)
@@ -167,10 +171,16 @@ class ChatSessionViewModel: ObservableObject {
                 Task { [self] in
                     do {
                         try await existingSession.start(agentName: self.selectedAgent, workingDir: worktree.path!)
+                        await sendPendingMessageIfNeeded()
                     } catch {
                         self.logger.error("Failed to start session for \(self.selectedAgent): \(error.localizedDescription)")
                         // Session will show auth dialog or setup dialog automatically via needsAuthentication/needsAgentSetup
                     }
+                }
+            } else {
+                // Session already active, check for pending message
+                Task {
+                    await sendPendingMessageIfNeeded()
                 }
             }
             return
@@ -195,11 +205,52 @@ class ChatSessionViewModel: ObservableObject {
             if !newSession.isActive {
                 do {
                     try await newSession.start(agentName: self.selectedAgent, workingDir: worktree.path!)
+                    // Check for pending message after session starts
+                    await sendPendingMessageIfNeeded()
                 } catch {
                     self.logger.error("Failed to start new session for \(self.selectedAgent): \(error.localizedDescription)")
                     // Session will show auth dialog or setup dialog automatically via needsAuthentication/needsAgentSetup
                 }
+            } else {
+                // Session already active, check for pending message
+                await sendPendingMessageIfNeeded()
             }
+        }
+    }
+
+    private func sendPendingMessageIfNeeded() async {
+        guard let sessionId = session.id,
+              let pendingMessage = sessionManager.consumePendingMessage(for: sessionId),
+              let agentSession = currentAgentSession else {
+            return
+        }
+
+        do {
+            try await agentSession.sendMessage(content: pendingMessage)
+        } catch {
+            logger.error("Failed to send pending message: \(error.localizedDescription)")
+        }
+    }
+
+    private func prefillInputTextIfNeeded() {
+        guard let sessionId = session.id,
+              let pendingText = sessionManager.consumePendingInputText(for: sessionId) else {
+            return
+        }
+
+        // Prefill the input field so user can add context before sending
+        inputText = pendingText
+    }
+
+    private func loadPendingAttachmentsIfNeeded() {
+        guard let sessionId = session.id,
+              let pendingAttachments = sessionManager.consumePendingAttachments(for: sessionId) else {
+            return
+        }
+
+        // Add pending attachments so user can add context before sending
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            attachments.append(contentsOf: pendingAttachments)
         }
     }
 
