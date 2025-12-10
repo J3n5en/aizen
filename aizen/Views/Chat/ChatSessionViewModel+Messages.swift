@@ -38,7 +38,6 @@ extension ChatSessionViewModel {
 
                 try await agentSession.sendMessage(content: messageText, attachments: messageAttachments)
 
-                self.messageHandler.saveMessage(content: messageText, role: "user", agentName: self.selectedAgent)
                 self.scrollToBottom()
             } catch {
                 // Add error to AgentSession (messages are derived from session)
@@ -65,28 +64,7 @@ extension ChatSessionViewModel {
     }
 
     func loadMessages() {
-        guard let messageSet = session.messages as? Set<ChatMessage> else {
-            return
-        }
-
-        let sortedMessages = messageSet.sorted { $0.timestamp! < $1.timestamp! }
-
-        let loadedMessages = sortedMessages.map { msg in
-            MessageItem(
-                id: msg.id!.uuidString,
-                role: messageRoleFromString(msg.role!),
-                content: msg.contentJSON!,
-                timestamp: msg.timestamp!
-            )
-        }
-
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            historicalMessages = loadedMessages
-            previousMessageIds = Set(loadedMessages.map { $0.id })
-            rebuildTimeline()
-        }
-
-        scrollToBottom()
+        // No-op: Sessions start fresh, no persistence
     }
 
     // MARK: - Private Helpers

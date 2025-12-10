@@ -23,7 +23,6 @@ class ChatSessionViewModel: ObservableObject {
 
     // MARK: - Handlers
 
-    let messageHandler: MessageHandler
     private let agentSwitcher: AgentSwitcher
     private let commandHandler = CommandAutocompleteHandler()
 
@@ -141,7 +140,6 @@ class ChatSessionViewModel: ObservableObject {
         self.sessionManager = sessionManager
         self.viewContext = viewContext
 
-        self.messageHandler = MessageHandler(viewContext: viewContext, session: session)
         self.agentSwitcher = AgentSwitcher(viewContext: viewContext, session: session)
 
         setupNotificationObservers()
