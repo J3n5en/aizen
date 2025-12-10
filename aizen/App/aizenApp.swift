@@ -24,6 +24,7 @@ struct aizenApp: App {
     @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
     @AppStorage("terminalFontSize") private var terminalFontSize = 12.0
     @AppStorage("terminalThemeName") private var terminalThemeName = "Catppuccin Mocha"
+    @AppStorage("terminalSessionPersistence") private var sessionPersistence = false
 
     init() {
         // Set launch source so libghostty knows to remove LANGUAGE env var
@@ -52,6 +53,9 @@ struct aizenApp: App {
                 .environmentObject(ghosttyApp)
                 .task(id: "\(terminalFontName)\(terminalFontSize)\(terminalThemeName)") {
                     ghosttyApp.reloadConfig()
+                }
+                .task {
+                    await cleanupOrphanedTmuxSessions()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -91,5 +95,33 @@ struct aizenApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
+    }
+
+    // MARK: - tmux Session Cleanup
+
+    /// Clean up orphaned tmux sessions that no longer have matching Core Data panes
+    private func cleanupOrphanedTmuxSessions() async {
+        guard sessionPersistence else { return }
+
+        let context = persistenceController.container.viewContext
+        var validPaneIds = Set<String>()
+
+        // Fetch all terminal sessions and extract their pane IDs
+        await context.perform {
+            let request: NSFetchRequest<TerminalSession> = TerminalSession.fetchRequest()
+            do {
+                let sessions = try context.fetch(request)
+                for session in sessions {
+                    if let layoutJSON = session.splitLayout,
+                       let layout = SplitLayoutHelper.decode(layoutJSON) {
+                        validPaneIds.formUnion(layout.allPaneIds())
+                    }
+                }
+            } catch {
+                // Silently fail - orphan cleanup is best-effort
+            }
+        }
+
+        await TmuxSessionManager.shared.cleanupOrphanedSessions(validPaneIds: validPaneIds)
     }
 }

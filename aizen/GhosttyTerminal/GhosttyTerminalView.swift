@@ -26,6 +26,7 @@ class GhosttyTerminalView: NSView {
     internal var surface: Ghostty.Surface?
     private var surfaceReference: Ghostty.SurfaceReference?
     private let worktreePath: String
+    private let paneId: String?
     private let initialCommand: String?
 
     /// Callback invoked when the terminal process exits
@@ -61,11 +62,13 @@ class GhosttyTerminalView: NSView {
     ///   - worktreePath: Working directory for the terminal session
     ///   - ghosttyApp: The shared Ghostty app instance (C pointer)
     ///   - appWrapper: The Ghostty.App wrapper for surface tracking (optional)
+    ///   - paneId: Unique identifier for this pane (used for tmux session persistence)
     ///   - command: Optional command to run instead of default shell
-    init(frame: NSRect, worktreePath: String, ghosttyApp: ghostty_app_t, appWrapper: Ghostty.App? = nil, command: String? = nil) {
+    init(frame: NSRect, worktreePath: String, ghosttyApp: ghostty_app_t, appWrapper: Ghostty.App? = nil, paneId: String? = nil, command: String? = nil) {
         self.worktreePath = worktreePath
         self.ghosttyApp = ghosttyApp
         self.ghosttyAppWrapper = appWrapper
+        self.paneId = paneId
         self.initialCommand = command
 
         // Use a reasonable default size if frame is zero
@@ -124,6 +127,7 @@ class GhosttyTerminalView: NSView {
             worktreePath: worktreePath,
             initialBounds: bounds,
             window: window,
+            paneId: paneId,
             command: initialCommand
         ) else {
             return
@@ -207,8 +211,27 @@ class GhosttyTerminalView: NSView {
         renderingSetup.updateBackingProperties(view: self, surface: surface?.unsafeCValue, window: window)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // When view is added to window, trigger refreshes at multiple intervals
+        // to handle tmux reattach timing issues
+        if window != nil {
+            // Try multiple refresh attempts at different intervals
+            for delay in [0.1, 0.3, 0.5, 1.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.forceRefresh()
+                }
+            }
+            // Also send Ctrl+L after tmux has had time to attach, to force redraw
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.sendRedrawKey()
+            }
+        }
+    }
+
     // Track last size sent to Ghostty to avoid redundant updates
     private var lastSurfaceSize: CGSize = .zero
+    private var didForceReattach = false
 
     // Override safe area insets to use full available space, including rounded corners
     // This matches Ghostty's SurfaceScrollView implementation
@@ -337,6 +360,46 @@ class GhosttyTerminalView: NSView {
     func terminalSize() -> Ghostty.Surface.TerminalSize? {
         guard let surface = surface else { return nil }
         return surface.terminalSize()
+    }
+
+    /// Force the terminal surface to refresh/redraw
+    /// Useful after tmux reattaches or when view becomes visible
+    func forceRefresh() {
+        guard let surface = surface?.unsafeCValue else { return }
+
+        // Force a size update to trigger tmux redraw
+        let scaledSize = convertToBacking(bounds.size)
+        ghostty_surface_set_size(
+            surface,
+            UInt32(scaledSize.width),
+            UInt32(scaledSize.height)
+        )
+
+        ghostty_surface_refresh(surface)
+        ghostty_surface_draw(surface)
+
+        // Trigger app tick to process any pending updates
+        ghosttyAppWrapper?.appTick()
+
+        // Force Metal layer to redraw
+        if let metalLayer = layer as? CAMetalLayer {
+            metalLayer.setNeedsDisplay()
+        }
+        layer?.setNeedsDisplay()
+        needsDisplay = true
+        needsLayout = true
+        displayIfNeeded()
+    }
+
+    /// Send Ctrl+L to the terminal to force a screen redraw
+    /// This is useful for tmux sessions that need to refresh their display
+    func sendRedrawKey() {
+        guard let surface = surface?.unsafeCValue else { return }
+        // Ctrl+L (form feed) - standard terminal clear/redraw
+        let ctrlL = "\u{0C}" // Form feed character (Ctrl+L)
+        ctrlL.withCString { ptr in
+            ghostty_surface_text(surface, ptr, 1)
+        }
     }
 }
 

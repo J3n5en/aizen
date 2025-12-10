@@ -24,6 +24,7 @@ struct SplitTerminalView: View {
     @State private var focusSaveWorkItem: DispatchWorkItem?
     @State private var showCloseConfirmation = false
     @State private var pendingCloseAction: CloseAction = .pane
+    @AppStorage("terminalSessionPersistence") private var sessionPersistence = false
     private let logger = Logger.terminal
 
     private enum CloseAction {
@@ -230,12 +231,21 @@ struct SplitTerminalView: View {
     }
 
     private func executeClosePaneOnly() {
+        let paneIdToClose = focusedPaneId
+
         // Remove terminal from manager
         if let sessionId = session.id {
-            sessionManager.removeTerminal(for: sessionId, paneId: focusedPaneId)
+            sessionManager.removeTerminal(for: sessionId, paneId: paneIdToClose)
         }
 
-        if let newLayout = layout.removingPane(focusedPaneId) {
+        // Kill tmux session if persistence is enabled
+        if sessionPersistence {
+            Task {
+                await TmuxSessionManager.shared.killSession(paneId: paneIdToClose)
+            }
+        }
+
+        if let newLayout = layout.removingPane(paneIdToClose) {
             layout = newLayout.equalized()
             // Focus first available pane
             if let firstPane = layout.allPaneIds().first {
@@ -245,10 +255,21 @@ struct SplitTerminalView: View {
     }
 
     private func closeTab() {
+        let allPaneIds = layout.allPaneIds()
+
         // Remove all terminals for this session
         if let sessionId = session.id {
-            for paneId in layout.allPaneIds() {
+            for paneId in allPaneIds {
                 sessionManager.removeTerminal(for: sessionId, paneId: paneId)
+            }
+        }
+
+        // Kill all tmux sessions if persistence is enabled
+        if sessionPersistence {
+            Task {
+                for paneId in allPaneIds {
+                    await TmuxSessionManager.shared.killSession(paneId: paneId)
+                }
             }
         }
 

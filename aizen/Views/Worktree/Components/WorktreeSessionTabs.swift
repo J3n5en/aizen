@@ -7,6 +7,21 @@
 
 import SwiftUI
 
+// MARK: - Terminal Persistence Indicator
+
+struct TerminalPersistenceIndicator: View {
+    @AppStorage("terminalSessionPersistence") private var sessionPersistence = false
+
+    var body: some View {
+        if sessionPersistence {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+                .help("Session persists across app restarts")
+        }
+    }
+}
+
 // MARK: - Session Tab Button
 
 struct SessionTabButton<Content: View>: View {
@@ -170,6 +185,8 @@ struct SessionTabsScrollView: View {
 
                 Text(session.title ?? String(localized: "worktree.session.terminal"))
                     .font(.callout)
+
+                TerminalPersistenceIndicator()
             }
         }
     }

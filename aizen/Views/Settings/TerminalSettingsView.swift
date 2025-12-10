@@ -15,8 +15,11 @@ struct TerminalSettingsView: View {
     @AppStorage("terminalThemeName") private var themeName = "Catppuccin Mocha"
     @AppStorage("terminalNotificationsEnabled") private var terminalNotificationsEnabled = true
     @AppStorage("terminalProgressEnabled") private var terminalProgressEnabled = true
+    @AppStorage("terminalSessionPersistence") private var sessionPersistence = false
 
     @StateObject private var presetManager = TerminalPresetManager.shared
+    @State private var tmuxAvailable = false
+    @State private var clearingTmuxSessions = false
     @State private var availableFonts: [String] = []
     @State private var themeNames: [String] = []
     @State private var showingAddPreset = false
@@ -92,6 +95,51 @@ struct TerminalSettingsView: View {
             }
 
             Section {
+                Toggle("Persist terminal sessions", isOn: $sessionPersistence)
+                    .disabled(!tmuxAvailable)
+
+                if sessionPersistence {
+                    Text("Terminal sessions will survive app restarts using tmux")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        clearingTmuxSessions = true
+                        Task {
+                            await TmuxSessionManager.shared.killAllAizenSessions()
+                            clearingTmuxSessions = false
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if clearingTmuxSessions {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text("Clear All Persistent Sessions")
+                        }
+                    }
+                    .disabled(clearingTmuxSessions)
+                }
+
+                if !tmuxAvailable {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("tmux not installed. Install via: brew install tmux")
+                            .font(.caption)
+                    }
+                }
+            } header: {
+                Text("Advanced")
+            } footer: {
+                if tmuxAvailable && !sessionPersistence {
+                    Text("When enabled, terminals run inside hidden tmux sessions and preserve their state when the app is closed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
                 ForEach(presetManager.presets) { preset in
                     HStack(spacing: 12) {
                         Image(systemName: preset.icon)
@@ -157,6 +205,7 @@ struct TerminalSettingsView: View {
             if themeNames.isEmpty {
                 themeNames = loadThemeNames()
             }
+            tmuxAvailable = TmuxSessionManager.shared.isTmuxAvailable()
         }
         .sheet(isPresented: $showingAddPreset) {
             TerminalPresetFormView(

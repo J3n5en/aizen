@@ -83,6 +83,8 @@ struct TerminalViewWrapper: NSViewRepresentable {
                 existingTerminal.onTitleChange = onTitleChange
                 existingTerminal.needsLayout = true
                 existingTerminal.layoutSubtreeIfNeeded()
+                // Force refresh to handle tmux reattach rendering
+                existingTerminal.forceRefresh()
                 onReady()
             }
 
@@ -110,6 +112,7 @@ struct TerminalViewWrapper: NSViewRepresentable {
             worktreePath: path,
             ghosttyApp: app,
             appWrapper: ghosttyApp,
+            paneId: paneId,
             command: initialCommand
         )
         terminalView.onReady = onReady
@@ -130,7 +133,10 @@ struct TerminalViewWrapper: NSViewRepresentable {
         // Start monitoring for process exit
         context.coordinator.startMonitoring(terminal: terminalView)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        // Delayed refresh and ready callback
+        // The extra delay helps tmux reattach render properly
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            terminalView.forceRefresh()
             onReady()
         }
 

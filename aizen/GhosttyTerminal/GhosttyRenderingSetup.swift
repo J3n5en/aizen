@@ -24,6 +24,7 @@ class GhosttyRenderingSetup {
     @AppStorage("terminalCursorColor") private var terminalCursorColor = "#f5e0dc"
     @AppStorage("terminalSelectionBackground") private var terminalSelectionBackground = "#585b70"
     @AppStorage("terminalPalette") private var terminalPalette = "#45475a,#f38ba8,#a6e3a1,#f9e2af,#89b4fa,#f5c2e7,#94e2d5,#a6adc8,#585b70,#f37799,#89d88b,#ebd391,#74a8fc,#f2aede,#6bd7ca,#bac2de"
+    @AppStorage("terminalSessionPersistence") private var sessionPersistence = false
 
     // MARK: - Layer Setup
 
@@ -56,6 +57,7 @@ class GhosttyRenderingSetup {
         worktreePath: String,
         initialBounds: NSRect,
         window: NSWindow?,
+        paneId: String? = nil,
         command: String? = nil
     ) -> ghostty_surface_t? {
         // Configure surface with working directory
@@ -77,23 +79,38 @@ class GhosttyRenderingSetup {
         // Set working directory
         var workingDirPtr: UnsafeMutablePointer<CChar>?
         var initialInputPtr: UnsafeMutablePointer<CChar>?
+        var commandPtr: UnsafeMutablePointer<CChar>?
 
         if let workingDir = strdup(worktreePath) {
             workingDirPtr = workingDir
             surfaceConfig.working_directory = UnsafePointer(workingDir)
         }
 
-        // Let Ghostty handle shell integration
-        surfaceConfig.command = nil
+        // Check if session persistence is enabled and tmux is available
+        if sessionPersistence, let paneId = paneId, TmuxSessionManager.shared.isTmuxAvailable() {
+            // Use tmux for session persistence - set as the command directly
+            // This makes tmux the shell process, not something running inside a shell
+            let tmuxCommand = TmuxSessionManager.shared.attachOrCreateCommand(
+                paneId: paneId,
+                workingDirectory: worktreePath
+            )
+            if let cmd = strdup(tmuxCommand) {
+                commandPtr = cmd
+                surfaceConfig.command = UnsafePointer(cmd)
+                Self.logger.info("Using tmux persistence for pane: \(paneId)")
+            }
+        } else {
+            // Let Ghostty handle shell integration
+            surfaceConfig.command = nil
 
-        // Set initial_input if command provided (for presets)
-        // This sends input to the shell after it starts
-        if let command = command, !command.isEmpty {
-            let inputWithNewline = command + "\n"
-            if let input = strdup(inputWithNewline) {
-                initialInputPtr = input
-                surfaceConfig.initial_input = UnsafePointer(input)
-                Self.logger.info("Setting initial_input for preset: \(command)")
+            // Set initial_input if command provided (for presets)
+            if let command = command, !command.isEmpty {
+                let inputWithNewline = command + "\n"
+                if let input = strdup(inputWithNewline) {
+                    initialInputPtr = input
+                    surfaceConfig.initial_input = UnsafePointer(input)
+                    Self.logger.info("Setting initial_input for preset: \(command)")
+                }
             }
         }
 
@@ -103,6 +120,9 @@ class GhosttyRenderingSetup {
             }
             if let input = initialInputPtr {
                 free(input)
+            }
+            if let cmd = commandPtr {
+                free(cmd)
             }
         }
 
