@@ -12,6 +12,7 @@ struct XcodeBuildButton: View {
     let worktree: Worktree?
 
     @State private var showingLogPopover = false
+    @State private var showingDebugLogs = false
 
     init(buildManager: XcodeBuildManager, worktree: Worktree? = nil) {
         self.buildManager = buildManager
@@ -21,6 +22,20 @@ struct XcodeBuildButton: View {
     var body: some View {
         HStack(spacing: 0) {
             runButton
+
+            // Debug logs button (shown when app has been launched and is running)
+            if buildManager.launchedBundleId != nil {
+                Divider()
+                    .frame(height: 16)
+
+                Button {
+                    showingDebugLogs = true
+                } label: {
+                    Label("Logs", systemImage: "apple.terminal")
+                }
+                .labelStyle(.iconOnly)
+                .help("View Debug Logs")
+            }
 
             Divider()
                 .frame(height: 16)
@@ -40,6 +55,9 @@ struct XcodeBuildButton: View {
                     showingLogPopover = false
                 }
             )
+        }
+        .sheet(isPresented: $showingDebugLogs) {
+            XcodeLogSheetView(buildManager: buildManager)
         }
     }
 

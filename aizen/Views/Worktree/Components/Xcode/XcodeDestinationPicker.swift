@@ -35,11 +35,7 @@ struct XcodeDestinationPicker: View {
     @ViewBuilder
     private var menuLabel: some View {
         HStack(spacing: 4) {
-            if buildManager.isLoadingDestinations {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.6)
-            } else if let destination = buildManager.selectedDestination {
+            if let destination = buildManager.selectedDestination {
                 destinationIcon(for: destination)
                 Text(destination.name)
                     .font(.system(size: 11))
@@ -49,9 +45,15 @@ struct XcodeDestinationPicker: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8))
-                .foregroundStyle(.secondary)
+            if buildManager.isLoadingDestinations {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.6)
+            } else {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -116,8 +118,13 @@ struct XcodeDestinationPicker: View {
         Button {
             buildManager.refreshDestinations()
         } label: {
-            Label("Refresh Devices", systemImage: "arrow.clockwise")
+            if buildManager.isLoadingDestinations {
+                Label("Refreshing...", systemImage: "arrow.clockwise")
+            } else {
+                Label("Refresh Devices", systemImage: "arrow.clockwise")
+            }
         }
+        .disabled(buildManager.isLoadingDestinations)
     }
 
     // MARK: - Destination Button

@@ -59,6 +59,11 @@ actor XcodeBuildService {
         arguments.append(contentsOf: ["-scheme", scheme])
         arguments.append(contentsOf: ["-destination", destination.destinationString])
 
+        // For physical devices, allow automatic provisioning updates
+        if destination.type == .device {
+            arguments.append("-allowProvisioningUpdates")
+        }
+
         // Build action - for simulators, this will also install the app
         arguments.append("build")
 

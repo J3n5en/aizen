@@ -147,3 +147,82 @@ struct SimctlDevice: Decodable {
         state == "Booted"
     }
 }
+
+// MARK: - DeviceCtl Response Types
+
+struct DeviceCtlResponse: Decodable {
+    let result: DeviceCtlResult
+}
+
+struct DeviceCtlResult: Decodable {
+    let devices: [DeviceCtlDevice]
+}
+
+struct DeviceCtlDevice: Decodable {
+    let identifier: String
+    let deviceProperties: DeviceCtlDeviceProperties
+    let hardwareProperties: DeviceCtlHardwareProperties
+    let connectionProperties: DeviceCtlConnectionProperties?
+}
+
+struct DeviceCtlDeviceProperties: Decodable {
+    let name: String
+    let osVersionNumber: String?
+}
+
+struct DeviceCtlHardwareProperties: Decodable {
+    let deviceType: String
+    let platform: String
+    let udid: String?
+}
+
+struct DeviceCtlConnectionProperties: Decodable {
+    let pairingState: String?
+    let tunnelState: String?
+}
+
+// MARK: - Destination Cache Types
+
+struct CachedDestinations: Codable {
+    let destinations: [CachedDestination]
+
+    func toDestinationDict() -> [DestinationType: [XcodeDestination]] {
+        var result: [DestinationType: [XcodeDestination]] = [:]
+        for cached in destinations {
+            let dest = cached.toDestination()
+            result[cached.type, default: []].append(dest)
+        }
+        return result
+    }
+}
+
+struct CachedDestination: Codable {
+    let id: String
+    let name: String
+    let type: DestinationType
+    let platform: String
+    let osVersion: String?
+    let isAvailable: Bool
+
+    init(destination: XcodeDestination, type: DestinationType) {
+        self.id = destination.id
+        self.name = destination.name
+        self.type = type
+        self.platform = destination.platform
+        self.osVersion = destination.osVersion
+        self.isAvailable = destination.isAvailable
+    }
+
+    func toDestination() -> XcodeDestination {
+        XcodeDestination(
+            id: id,
+            name: name,
+            type: type,
+            platform: platform,
+            osVersion: osVersion,
+            isAvailable: isAvailable
+        )
+    }
+}
+
+extension DestinationType: Codable {}

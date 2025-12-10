@@ -190,6 +190,7 @@ enum XcodeError: Error, LocalizedError {
     case noSchemesFound
     case buildFailed(String)
     case launchFailed(String)
+    case installFailed(String)
     case xcodeNotInstalled
 
     var errorDescription: String? {
@@ -204,6 +205,8 @@ enum XcodeError: Error, LocalizedError {
             return "Build failed: \(message)"
         case .launchFailed(let message):
             return "Launch failed: \(message)"
+        case .installFailed(let message):
+            return "Install failed: \(message)"
         case .xcodeNotInstalled:
             return "Xcode is not installed"
         }

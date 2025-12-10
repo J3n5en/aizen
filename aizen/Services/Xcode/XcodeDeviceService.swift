@@ -111,110 +111,59 @@ actor XcodeDeviceService {
     // MARK: - Physical Devices
 
     private func listPhysicalDevices() async throws -> [XcodeDestination] {
+        // Use devicectl to get devices with CoreDevice UUIDs (required for xcodebuild)
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("devicectl_\(UUID().uuidString).json")
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["xctrace", "list", "devices"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
+        process.arguments = ["devicectl", "list", "devices", "--json-output", tempFile.path]
+        process.standardOutput = Pipe()
         process.standardError = Pipe()
 
         try process.run()
         process.waitUntilExit()
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        defer {
+            try? FileManager.default.removeItem(at: tempFile)
+        }
+
+        guard process.terminationStatus == 0,
+              let jsonData = try? Data(contentsOf: tempFile) else {
+            logger.warning("Failed to list devices via devicectl")
+            return []
+        }
+
+        let response = try JSONDecoder().decode(DeviceCtlResponse.self, from: jsonData)
 
         var destinations: [XcodeDestination] = []
-        var isInDevicesSection = false
 
-        for line in output.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        for device in response.result.devices {
+            // Skip Macs (we add separately), watches, and unavailable devices
+            let deviceType = device.hardwareProperties.deviceType.lowercased()
+            guard deviceType == "iphone" || deviceType == "ipad" else { continue }
 
-            // Look for device section header
-            if trimmed.hasPrefix("== Devices ==") {
-                isInDevicesSection = true
-                continue
-            }
+            // Check if device is available
+            let isPaired = device.connectionProperties?.pairingState == "paired"
+            guard isPaired else { continue }
 
-            // Stop at simulators section
-            if trimmed.hasPrefix("== Simulators ==") {
-                break
-            }
+            // Use UDID for xcodebuild (not CoreDevice identifier)
+            guard let udid = device.hardwareProperties.udid else { continue }
 
-            guard isInDevicesSection, !trimmed.isEmpty else { continue }
-
-            // Parse device line: "iPhone Name (16.0) (UDID-HERE)"
-            if let destination = parseDeviceLine(trimmed) {
-                destinations.append(destination)
-            }
+            let destination = XcodeDestination(
+                id: udid,
+                name: device.deviceProperties.name,
+                type: .device,
+                platform: device.hardwareProperties.platform,
+                osVersion: device.deviceProperties.osVersionNumber,
+                isAvailable: isPaired
+            )
+            destinations.append(destination)
         }
+
+        // Sort by name
+        destinations.sort { $0.name < $1.name }
 
         return destinations
-    }
-
-    private func parseDeviceLine(_ line: String) -> XcodeDestination? {
-        // Format: "Device Name (OS Version) (UDID)"
-        // or: "Device Name (UDID)" for Mac
-
-        // Extract UDID from last parentheses
-        guard let lastOpenParen = line.lastIndex(of: "("),
-              let lastCloseParen = line.lastIndex(of: ")"),
-              lastOpenParen < lastCloseParen else {
-            return nil
-        }
-
-        let udidStart = line.index(after: lastOpenParen)
-        let udid = String(line[udidStart..<lastCloseParen])
-
-        // Skip if UDID looks like a version number
-        guard udid.contains("-") || udid.count > 10 else { return nil }
-
-        // Get everything before the UDID
-        let beforeUdid = String(line[..<lastOpenParen]).trimmingCharacters(in: .whitespaces)
-
-        // Check for version in second-to-last parentheses
-        var name = beforeUdid
-        var version: String? = nil
-
-        if let versionOpenParen = beforeUdid.lastIndex(of: "("),
-           let versionCloseParen = beforeUdid.lastIndex(of: ")"),
-           versionOpenParen < versionCloseParen {
-            let versionStart = beforeUdid.index(after: versionOpenParen)
-            let possibleVersion = String(beforeUdid[versionStart..<versionCloseParen])
-
-            // Check if it looks like a version
-            if possibleVersion.first?.isNumber == true {
-                version = possibleVersion
-                name = String(beforeUdid[..<versionOpenParen]).trimmingCharacters(in: .whitespaces)
-            }
-        }
-
-        // Skip This Mac (we add it separately)
-        if name.lowercased().contains("mac") && !name.lowercased().contains("iphone") {
-            return nil
-        }
-
-        // Determine platform
-        let platform: String
-        if name.lowercased().contains("iphone") || name.lowercased().contains("ipad") {
-            platform = "iOS"
-        } else if name.lowercased().contains("watch") {
-            platform = "watchOS"
-        } else if name.lowercased().contains("tv") {
-            platform = "tvOS"
-        } else {
-            platform = "iOS" // Default
-        }
-
-        return XcodeDestination(
-            id: udid,
-            name: name,
-            type: .device,
-            platform: platform,
-            osVersion: version,
-            isAvailable: true
-        )
     }
 
     private func createMacDestination() -> XcodeDestination {
@@ -311,5 +260,129 @@ actor XcodeDeviceService {
         process.standardError = Pipe()
 
         try? process.run()
+    }
+
+    // MARK: - App Termination
+
+    func terminateInSimulator(deviceId: String, bundleId: String) async {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "terminate", deviceId, bundleId]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            logger.debug("Terminated \(bundleId) on simulator \(deviceId)")
+        } catch {
+            logger.debug("Failed to terminate app (may not be running): \(error.localizedDescription)")
+        }
+    }
+
+    func terminateMacApp(bundleId: String) async {
+        // Use osascript to quit the app gracefully by bundle ID
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "tell application id \"\(bundleId)\" to quit"]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            // Give the app a moment to quit gracefully
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            logger.debug("Terminated Mac app with bundle ID \(bundleId)")
+        } catch {
+            logger.debug("Failed to terminate Mac app (may not be running): \(error.localizedDescription)")
+        }
+    }
+
+    func terminateMacAppByPath(_ appPath: String) async {
+        // Extract app name from path and use killall
+        let appName = (appPath as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
+        process.arguments = [appName]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            logger.debug("Terminated Mac app: \(appName)")
+        } catch {
+            logger.debug("Failed to terminate Mac app (may not be running): \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Physical Device Control
+
+    func installOnDevice(deviceId: String, appPath: String) async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["devicectl", "device", "install", "app", "--device", deviceId, appPath]
+
+        let errorPipe = Pipe()
+        process.standardOutput = Pipe()
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            logger.error("Failed to install app on device: \(errorMessage)")
+            throw XcodeError.installFailed(errorMessage)
+        }
+
+        logger.info("Installed \(appPath) on device \(deviceId)")
+    }
+
+    func terminateOnDevice(deviceId: String, bundleId: String) async {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["devicectl", "device", "process", "terminate", "--device", deviceId, bundleId]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            logger.debug("Terminated \(bundleId) on device \(deviceId)")
+        } catch {
+            logger.debug("Failed to terminate app on device (may not be running): \(error.localizedDescription)")
+        }
+    }
+
+    /// Launch app on physical device with console output capture
+    /// Returns the process that's streaming console output (caller must handle pipes)
+    func launchOnDeviceWithConsole(deviceId: String, bundleId: String) async throws -> Process {
+        // First terminate any existing instance
+        await terminateOnDevice(deviceId: deviceId, bundleId: bundleId)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = [
+            "devicectl", "device", "process", "launch",
+            "--device", deviceId,
+            "--terminate-existing",
+            "--console",
+            bundleId
+        ]
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        try process.run()
+        logger.info("Launched \(bundleId) on device \(deviceId) with console")
+
+        return process
     }
 }
