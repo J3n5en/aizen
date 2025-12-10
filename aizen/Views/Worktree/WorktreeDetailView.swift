@@ -276,6 +276,42 @@ struct WorktreeDetailView: View {
         gitChangesContext != nil
     }
 
+    private var gitStatusIcon: String {
+        let status = gitRepositoryService.currentStatus
+        if !status.conflictedFiles.isEmpty {
+            // Has conflicts - warning state
+            return "square.and.arrow.up.trianglebadge.exclamationmark"
+        } else if hasGitChanges {
+            // Has uncommitted changes
+            return "square.and.arrow.up.badge.clock"
+        } else {
+            // Clean state - all committed
+            return "square.and.arrow.up.badge.checkmark"
+        }
+    }
+
+    private var gitStatusHelp: String {
+        let status = gitRepositoryService.currentStatus
+        if !status.conflictedFiles.isEmpty {
+            return "Git Changes - \(status.conflictedFiles.count) conflict(s)"
+        } else if hasGitChanges {
+            return "Git Changes - uncommitted changes"
+        } else {
+            return "Git Changes - clean"
+        }
+    }
+
+    private var gitStatusColor: Color {
+        let status = gitRepositoryService.currentStatus
+        if !status.conflictedFiles.isEmpty {
+            return .red
+        } else if hasGitChanges {
+            return .orange
+        } else {
+            return .green
+        }
+    }
+
     @ViewBuilder
     private var gitSidebarButton: some View {
         let button = Button(action: {
@@ -287,10 +323,12 @@ struct WorktreeDetailView: View {
                 }
             }
         }) {
-            Label("Git Changes", systemImage: "sidebar.right")
+            Label("Git Changes", systemImage: gitStatusIcon)
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(gitStatusColor, .primary, .clear)
         }
         .labelStyle(.iconOnly)
-        .help("Show Git Changes")
+        .help(gitStatusHelp)
 
         if #available(macOS 14.0, *) {
             button.symbolEffect(.bounce, value: showingGitChanges)
