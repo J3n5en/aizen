@@ -111,13 +111,6 @@ struct TerminalPaneView: View {
                     }
                 }
             }
-            // Force refresh after view appears (helps with tmux reattach)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                if let sessionId = session.id,
-                   let terminal = sessionManager.getTerminal(for: sessionId, paneId: paneId) {
-                    terminal.forceRefresh()
-                }
-            }
         }
         .onDisappear {
             hideWorkItem?.cancel()

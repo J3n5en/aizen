@@ -213,18 +213,10 @@ class GhosttyTerminalView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // When view is added to window, trigger refreshes at multiple intervals
-        // to handle tmux reattach timing issues
+        // Single refresh when view moves to window
         if window != nil {
-            // Try multiple refresh attempts at different intervals
-            for delay in [0.1, 0.3, 0.5, 1.0] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    self?.forceRefresh()
-                }
-            }
-            // Also send Ctrl+L after tmux has had time to attach, to force redraw
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                self?.sendRedrawKey()
+            DispatchQueue.main.async { [weak self] in
+                self?.forceRefresh()
             }
         }
     }
@@ -389,17 +381,6 @@ class GhosttyTerminalView: NSView {
         needsDisplay = true
         needsLayout = true
         displayIfNeeded()
-    }
-
-    /// Send Ctrl+L to the terminal to force a screen redraw
-    /// This is useful for tmux sessions that need to refresh their display
-    func sendRedrawKey() {
-        guard let surface = surface?.unsafeCValue else { return }
-        // Ctrl+L (form feed) - standard terminal clear/redraw
-        let ctrlL = "\u{0C}" // Form feed character (Ctrl+L)
-        ctrlL.withCString { ptr in
-            ghostty_surface_text(surface, ptr, 1)
-        }
     }
 }
 
