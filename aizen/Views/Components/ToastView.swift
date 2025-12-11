@@ -2,7 +2,7 @@
 //  ToastView.swift
 //  aizen
 //
-//  Created by Claude on 03.11.25.
+//  Created by Uladzislau Yakauleu on 03.11.25.
 //
 
 import SwiftUI

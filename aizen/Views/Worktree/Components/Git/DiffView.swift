@@ -156,6 +156,8 @@ struct DiffView: NSViewRepresentable {
         )
     }
 
+    // MARK: - Coordinator
+
     class Coordinator: NSObject, NSTableViewDelegate, NSTableViewDataSource {
         weak var tableView: NSTableView?
         var rows: [DiffRow] = []
@@ -169,11 +171,21 @@ struct DiffView: NSViewRepresentable {
         var lastScrolledFile: String?
         var commentedLines: Set<String> = []
         var onAddComment: ((DiffLine, String) -> Void)?
+
         private var lastDataHash: Int = 0
-        private var fileRowIndices: [String: Int] = [:]  // Map file path to row index
-        private var rowToFilePath: [Int: String] = [:]   // Map row index to file path
+        private var fileRowIndices: [String: Int] = [:]
+        private var rowToFilePath: [Int: String] = [:]
         private var lastVisibleFile: String?
         private var scrollObserver: NSObjectProtocol?
+        private var rawLines: [String] = []
+        private var parsedRows: [Int: DiffRow] = [:]
+        private var lineParser: DiffLineParser?
+
+        enum DiffRow {
+            case fileHeader(path: String)
+            case line(DiffLine)
+            case lazyLine(rawIndex: Int)
+        }
 
         init(
             repoPath: String,
@@ -196,12 +208,6 @@ struct DiffView: NSViewRepresentable {
             }
         }
 
-        enum DiffRow {
-            case fileHeader(path: String)
-            case line(DiffLine)
-            case lazyLine(rawIndex: Int)
-        }
-
         func setupScrollObserver(for scrollView: NSScrollView) {
             scrollObserver = NotificationCenter.default.addObserver(
                 forName: NSView.boundsDidChangeNotification,
@@ -217,7 +223,10 @@ struct DiffView: NSViewRepresentable {
             guard let tableView = tableView else { return }
             let visibleRect = tableView.visibleRect
 
-            // Find the file header that best represents what's currently visible
+            // Constants for visibility thresholds
+            let headerAboveThreshold: CGFloat = 20
+            let headerNearTopThreshold: CGFloat = 50
+
             var currentFile: String?
             var lastFileBeforeVisible: String?
 
@@ -225,24 +234,18 @@ struct DiffView: NSViewRepresentable {
                 if case .fileHeader(let path) = row {
                     let rowRect = tableView.rect(ofRow: index)
 
-                    // If this header is above the visible area, remember it
-                    if rowRect.maxY <= visibleRect.minY + 20 {
+                    if rowRect.maxY <= visibleRect.minY + headerAboveThreshold {
                         lastFileBeforeVisible = path
-                    }
-                    // If this header is within the visible area
-                    else if rowRect.minY < visibleRect.maxY {
-                        // If header is at or near the top of visible area, this is our file
-                        if rowRect.minY <= visibleRect.minY + 50 {
+                    } else if rowRect.minY < visibleRect.maxY {
+                        if rowRect.minY <= visibleRect.minY + headerNearTopThreshold {
                             currentFile = path
                         } else if currentFile == nil {
-                            // First header we see in the visible area
                             currentFile = path
                         }
                     }
                 }
             }
 
-            // If no header is visible but we scrolled past one, use that
             if currentFile == nil {
                 currentFile = lastFileBeforeVisible
             }
@@ -258,7 +261,6 @@ struct DiffView: NSViewRepresentable {
                   let rowIndex = fileRowIndices[file] else { return }
 
             tableView.scrollRowToVisible(rowIndex)
-            // Scroll a bit more to show the header at the top
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 let rowRect = tableView.rect(ofRow: rowIndex)
                 tableView.enclosingScrollView?.contentView.scroll(to: NSPoint(x: 0, y: rowRect.minY))
@@ -300,6 +302,9 @@ struct DiffView: NSViewRepresentable {
                 rawLines.append(line)
             }
 
+            // Initialize parser
+            lineParser = DiffLineParser(rawLines: rawLines)
+
             // Clear parsed cache
             parsedRows.removeAll(keepingCapacity: true)
             fileRowIndices.removeAll()
@@ -311,13 +316,8 @@ struct DiffView: NSViewRepresentable {
             tableView?.reloadData()
         }
 
-        private var rawLines: [String] = []
-        private var parsedRows: [Int: DiffRow] = [:] // Lazy cache
-
         private func buildRowMetadata() {
             var rowIndex = 0
-            var oldNum = 0
-            var newNum = 0
             var currentFilePath: String?
             rowToFilePath.removeAll()
 
@@ -339,7 +339,6 @@ struct DiffView: NSViewRepresentable {
                 } else if line.hasPrefix("index ") || line.hasPrefix("new file") || line.hasPrefix("deleted file") {
                     continue
                 } else if firstChar == "@" || firstChar == "+" || firstChar == "-" || firstChar == " " {
-                    // Just add placeholder - will parse on demand
                     rows.append(.lazyLine(rawIndex: lineIndex))
                     if let path = currentFilePath {
                         rowToFilePath[rowIndex] = path
@@ -349,67 +348,17 @@ struct DiffView: NSViewRepresentable {
             }
         }
 
-        // Parse a single line on demand
-        private func parseLineAt(_ rawIndex: Int) -> DiffLine {
-            let line = rawLines[rawIndex]
-            let firstChar = line.first
-
-            // Need to calculate line numbers by scanning backwards
-            var oldNum = 0
-            var newNum = 0
-
-            // Find the most recent @@ header to get starting line numbers
-            for i in stride(from: rawIndex - 1, through: 0, by: -1) {
-                let prevLine = rawLines[i]
-                if prevLine.hasPrefix("@@") {
-                    // Parse hunk header
-                    if let minusRange = prevLine.range(of: "-") {
-                        let afterMinus = prevLine[minusRange.upperBound...]
-                        if let end = afterMinus.firstIndex(where: { $0 == "," || $0 == " " }),
-                           let num = Int(afterMinus[..<end]) {
-                            oldNum = num
-                        }
-                    }
-                    if let plusRange = prevLine.range(of: " +") {
-                        let afterPlus = prevLine[plusRange.upperBound...]
-                        if let end = afterPlus.firstIndex(where: { $0 == "," || $0 == " " }),
-                           let num = Int(afterPlus[..<end]) {
-                            newNum = num
-                        }
-                    }
-                    // Count lines between header and current
-                    for j in (i + 1)..<rawIndex {
-                        let scanLine = rawLines[j]
-                        let scanChar = scanLine.first
-                        if scanChar == "+" { newNum += 1 }
-                        else if scanChar == "-" { oldNum += 1 }
-                        else if scanChar == " " { oldNum += 1; newNum += 1 }
-                    }
-                    break
-                }
-            }
-
-            if firstChar == "@" {
-                return DiffLine(lineNumber: rawIndex, oldLineNumber: nil, newLineNumber: nil, content: line, type: .header)
-            } else if firstChar == "+" {
-                return DiffLine(lineNumber: rawIndex, oldLineNumber: nil, newLineNumber: String(newNum + 1), content: String(line.dropFirst()), type: .added)
-            } else if firstChar == "-" {
-                return DiffLine(lineNumber: rawIndex, oldLineNumber: String(oldNum + 1), newLineNumber: nil, content: String(line.dropFirst()), type: .deleted)
-            } else {
-                return DiffLine(lineNumber: rawIndex, oldLineNumber: String(oldNum + 1), newLineNumber: String(newNum + 1), content: String(line.dropFirst()), type: .context)
-            }
-        }
-
         func getRow(at index: Int) -> DiffRow {
-            guard index < rows.count else { return .line(DiffLine(lineNumber: 0, oldLineNumber: nil, newLineNumber: nil, content: "", type: .context)) }
+            guard index < rows.count else {
+                return .line(DiffLine(lineNumber: 0, oldLineNumber: nil, newLineNumber: nil, content: "", type: .context))
+            }
 
             switch rows[index] {
             case .lazyLine(let rawIndex):
-                // Parse on demand and cache
                 if let cached = parsedRows[index] {
                     return cached
                 }
-                let parsed = DiffRow.line(parseLineAt(rawIndex))
+                let parsed = DiffRow.line(lineParser?.parseLine(at: rawIndex) ?? DiffLine(lineNumber: rawIndex, oldLineNumber: nil, newLineNumber: nil, content: "", type: .context))
                 parsedRows[index] = parsed
                 return parsed
             default:
@@ -431,7 +380,7 @@ struct DiffView: NSViewRepresentable {
             case .line(let diffLine):
                 return makeLineCell(diffLine: diffLine, row: row, tableView: tableView)
             case .lazyLine:
-                return nil // Should never happen after getRow
+                return nil
             }
         }
 
@@ -486,297 +435,6 @@ struct DiffView: NSViewRepresentable {
                 }
             )
             return cell
-        }
-    }
-}
-
-// MARK: - Row View
-
-private class DiffNSRowView: NSTableRowView {
-    var lineType: DiffLineType? {
-        didSet { needsDisplay = true }
-    }
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        guard let type = lineType else {
-            // File header
-            NSColor.controlBackgroundColor.withAlphaComponent(0.8).setFill()
-            bounds.fill()
-            return
-        }
-        type.nsBackgroundColor.setFill()
-        bounds.fill()
-    }
-
-    override func drawSelection(in dirtyRect: NSRect) {}
-}
-
-// MARK: - File Header Cell
-
-private class FileHeaderCellView: NSTableCellView {
-    private let iconView = NSImageView()
-    private let pathLabel = NSTextField(labelWithString: "")
-    private let openButton = NSButton()
-    private var currentPath: String = ""
-    private var onOpenFile: ((String) -> Void)?
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    private func setupViews() {
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyUpOrDown
-
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-
-        openButton.translatesAutoresizingMaskIntoConstraints = false
-        openButton.bezelStyle = .accessoryBarAction
-        openButton.isBordered = false
-        openButton.image = NSImage(systemSymbolName: "arrow.up.forward.square", accessibilityDescription: "Open in editor")
-        openButton.contentTintColor = .secondaryLabelColor
-        openButton.target = self
-        openButton.action = #selector(openFile)
-        openButton.toolTip = "Open in editor"
-
-        addSubview(iconView)
-        addSubview(pathLabel)
-        addSubview(openButton)
-
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            iconView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
-
-            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-            pathLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-
-            openButton.leadingAnchor.constraint(greaterThanOrEqualTo: pathLabel.trailingAnchor, constant: 8),
-            openButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            openButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-            openButton.widthAnchor.constraint(equalToConstant: 20),
-            openButton.heightAnchor.constraint(equalToConstant: 20)
-        ])
-    }
-
-    @objc private func openFile() {
-        onOpenFile?(currentPath)
-    }
-
-    func configure(path: String, repoPath: String, fontSize: Double, fontFamily: String, onOpenFile: ((String) -> Void)?) {
-        currentPath = path
-        self.onOpenFile = onOpenFile
-
-        pathLabel.stringValue = path
-        pathLabel.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-
-        let fullPath = (repoPath as NSString).appendingPathComponent(path)
-        Task { @MainActor in
-            if let icon = await FileIconService.shared.icon(forFile: fullPath, size: CGSize(width: 16, height: 16)) {
-                self.iconView.image = icon
-            } else {
-                self.iconView.image = NSWorkspace.shared.icon(forFileType: (path as NSString).pathExtension)
-            }
-        }
-    }
-}
-
-// MARK: - Line Cell
-
-private class LineCellView: NSTableCellView {
-    private let oldNumLabel = NSTextField(labelWithString: "")
-    private let newNumLabel = NSTextField(labelWithString: "")
-    private let markerLabel = NSTextField(labelWithString: "")
-    private let contentLabel = NSTextField(labelWithString: "")
-    private let lineNumBg = NSView()
-    private let commentButton = NSButton()
-
-    private var trackingArea: NSTrackingArea?
-    private var isHovered = false
-    private var hasComment = false
-    var onCommentTap: (() -> Void)?
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    private func setupViews() {
-        lineNumBg.wantsLayer = true
-        lineNumBg.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.5).cgColor
-        lineNumBg.translatesAutoresizingMaskIntoConstraints = false
-
-        [oldNumLabel, newNumLabel].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            $0.alignment = .right
-            $0.textColor = .tertiaryLabelColor
-        }
-
-        markerLabel.translatesAutoresizingMaskIntoConstraints = false
-        markerLabel.alignment = .center
-
-        contentLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentLabel.lineBreakMode = .byWordWrapping
-        contentLabel.maximumNumberOfLines = 0
-        contentLabel.isSelectable = true
-        contentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        contentLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        // Comment button setup
-        commentButton.translatesAutoresizingMaskIntoConstraints = false
-        commentButton.bezelStyle = .accessoryBarAction
-        commentButton.isBordered = false
-        commentButton.target = self
-        commentButton.action = #selector(commentButtonTapped)
-        commentButton.isHidden = true
-
-        addSubview(lineNumBg)
-        addSubview(oldNumLabel)
-        addSubview(newNumLabel)
-        addSubview(commentButton)
-        addSubview(markerLabel)
-        addSubview(contentLabel)
-
-        NSLayoutConstraint.activate([
-            lineNumBg.leadingAnchor.constraint(equalTo: leadingAnchor),
-            lineNumBg.topAnchor.constraint(equalTo: topAnchor),
-            lineNumBg.bottomAnchor.constraint(equalTo: bottomAnchor),
-            lineNumBg.widthAnchor.constraint(equalToConstant: 56),
-
-            commentButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            commentButton.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            commentButton.widthAnchor.constraint(equalToConstant: 14),
-            commentButton.heightAnchor.constraint(equalToConstant: 14),
-
-            oldNumLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
-            oldNumLabel.widthAnchor.constraint(equalToConstant: 18),
-            oldNumLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-
-            newNumLabel.leadingAnchor.constraint(equalTo: oldNumLabel.trailingAnchor, constant: 2),
-            newNumLabel.widthAnchor.constraint(equalToConstant: 18),
-            newNumLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-
-            markerLabel.leadingAnchor.constraint(equalTo: lineNumBg.trailingAnchor, constant: 4),
-            markerLabel.widthAnchor.constraint(equalToConstant: 16),
-            markerLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-
-            contentLabel.leadingAnchor.constraint(equalTo: markerLabel.trailingAnchor, constant: 4),
-            contentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            contentLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-            contentLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3)
-        ])
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let area = trackingArea {
-            removeTrackingArea(area)
-        }
-        let options: NSTrackingArea.Options = [
-            .mouseEnteredAndExited,
-            .activeInKeyWindow,
-            .inVisibleRect
-        ]
-        trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
-        addTrackingArea(trackingArea!)
-
-        // Check if mouse is currently inside after tracking area update
-        if let window = window {
-            let mouseLocation = window.mouseLocationOutsideOfEventStream
-            let localPoint = convert(mouseLocation, from: nil)
-            let wasHovered = isHovered
-            isHovered = bounds.contains(localPoint)
-            if wasHovered != isHovered {
-                updateCommentButtonVisibility()
-            }
-        }
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        updateCommentButtonVisibility()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        updateCommentButtonVisibility()
-    }
-
-    private func updateCommentButtonVisibility() {
-        commentButton.isHidden = !isHovered && !hasComment
-    }
-
-    @objc private func commentButtonTapped() {
-        onCommentTap?()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        isHovered = false
-        hasComment = false
-        onCommentTap = nil
-        commentButton.isHidden = true
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // Reset hover state when cell moves to window (reuse)
-        isHovered = false
-        if !hasComment {
-            commentButton.isHidden = true
-        }
-    }
-
-    func configure(
-        diffLine: DiffLine,
-        fontSize: Double,
-        fontFamily: String,
-        hasComment: Bool,
-        onCommentTap: (() -> Void)?
-    ) {
-        // Reset hover state on reuse
-        self.isHovered = false
-        self.hasComment = hasComment
-        self.onCommentTap = onCommentTap
-
-        let font = NSFont(name: fontFamily, size: fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        let smallFont = NSFont(name: fontFamily, size: fontSize - 1) ?? NSFont.monospacedSystemFont(ofSize: fontSize - 1, weight: .regular)
-
-        oldNumLabel.stringValue = diffLine.oldLineNumber ?? ""
-        oldNumLabel.font = smallFont
-        oldNumLabel.alphaValue = diffLine.oldLineNumber != nil ? 1 : 0
-
-        newNumLabel.stringValue = diffLine.newLineNumber ?? ""
-        newNumLabel.font = smallFont
-        newNumLabel.alphaValue = diffLine.newLineNumber != nil ? 1 : 0
-
-        markerLabel.stringValue = diffLine.type.marker
-        markerLabel.font = font
-        markerLabel.textColor = diffLine.type.nsMarkerColor
-
-        contentLabel.stringValue = diffLine.content.isEmpty ? " " : diffLine.content
-        contentLabel.font = font
-
-        // Update comment button appearance
-        if hasComment {
-            commentButton.image = NSImage(systemSymbolName: "text.bubble.fill", accessibilityDescription: "Edit comment")
-            commentButton.contentTintColor = .systemBlue
-            commentButton.isHidden = false
-        } else {
-            commentButton.image = NSImage(systemSymbolName: "bubble.left", accessibilityDescription: "Add comment")
-            commentButton.contentTintColor = .tertiaryLabelColor
-            commentButton.isHidden = true  // Only show on hover
         }
     }
 }

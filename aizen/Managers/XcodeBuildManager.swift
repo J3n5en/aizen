@@ -2,7 +2,7 @@
 //  XcodeBuildManager.swift
 //  aizen
 //
-//  Created by Claude on 10.12.25.
+//  Xcode build and run management
 //
 
 import Foundation

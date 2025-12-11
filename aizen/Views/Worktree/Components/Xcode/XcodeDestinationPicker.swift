@@ -2,7 +2,7 @@
 //  XcodeDestinationPicker.swift
 //  aizen
 //
-//  Created by Claude on 10.12.25.
+//  Created by Uladzislau Yakauleu on 10.12.25.
 //
 
 import SwiftUI

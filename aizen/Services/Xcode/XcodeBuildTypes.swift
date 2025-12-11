@@ -2,7 +2,7 @@
 //  XcodeBuildTypes.swift
 //  aizen
 //
-//  Created by Claude on 10.12.25.
+//  Xcode build types and models
 //
 
 import Foundation

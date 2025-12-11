@@ -553,6 +553,7 @@
 					"-framework",
 					CoreFoundation,
 				);
+				OTHER_SWIFT_FLAGS = "-Xcc -fmodule-map-file=$(PROJECT_DIR)/Vendor/libgit2/include/module.modulemap";
 				PRODUCT_BUNDLE_IDENTIFIER = win.aizen.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -571,7 +572,6 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "aizen/ghostty-bridging-header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				OTHER_SWIFT_FLAGS = "-Xcc -fmodule-map-file=$(PROJECT_DIR)/Vendor/libgit2/include/module.modulemap";
 			};
 			name = Debug;
 		};
@@ -632,6 +632,7 @@
 					"-framework",
 					CoreFoundation,
 				);
+				OTHER_SWIFT_FLAGS = "-Xcc -fmodule-map-file=$(PROJECT_DIR)/Vendor/libgit2/include/module.modulemap";
 				PRODUCT_BUNDLE_IDENTIFIER = win.aizen.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -649,7 +650,6 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "aizen/ghostty-bridging-header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				OTHER_SWIFT_FLAGS = "-Xcc -fmodule-map-file=$(PROJECT_DIR)/Vendor/libgit2/include/module.modulemap";
 			};
 			name = Release;
 		};
