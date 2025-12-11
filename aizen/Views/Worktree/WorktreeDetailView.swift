@@ -223,7 +223,7 @@ struct WorktreeDetailView: View {
                 ToolbarSpacer(.fixed)
             } else {
                 ToolbarItem(placement: .automatic) {
-                    Spacer().frame(width: 8).fixedSize()
+                    Spacer().frame(width: 12).fixedSize()
                 }
             }
         }
@@ -239,8 +239,12 @@ struct WorktreeDetailView: View {
             }
         }
 
-        ToolbarItem(placement: .automatic) {
-            Spacer().frame(width: 16).fixedSize()
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.fixed)
+        } else {
+            ToolbarItem(placement: .automatic) {
+                Spacer().frame(width: 12).fixedSize()
+            }
         }
 
         if showGitStatus {
@@ -449,8 +453,12 @@ struct WorktreeDetailView: View {
                     sessionToolbarItems
                 }
 
-                ToolbarItem(placement: .automatic) {
-                    Spacer().frame(width: 16).fixedSize()
+                if #available(macOS 26.0, *) {
+                    ToolbarSpacer(.fixed)
+                } else {
+                    ToolbarItem(placement: .automatic) {
+                        Spacer().frame(width: 12).fixedSize()
+                    }
                 }
 
                 trailingToolbarItems

@@ -41,6 +41,10 @@ perl -0pi -e 's/if \(!config\.target\.result\.os\.tag\.isDarwin\(\)\) \{/if (tru
 perl -0pi -e 's/lib\.linkFramework\("IOSurface"\);/lib.linkFramework("IOSurface");\n    lib.linkFramework("Metal");\n    lib.linkFramework("MetalKit");/g' "${WORKDIR}/ghostty/pkg/macos/build.zig"
 perl -0pi -e 's/module\.linkFramework\("IOSurface", \.\{\}\);/module.linkFramework("IOSurface", .{});\n        module.linkFramework("Metal", .{});\n        module.linkFramework("MetalKit", .{});/g' "${WORKDIR}/ghostty/pkg/macos/build.zig"
 
+# Patch bundle ID to use Aizen's instead of Ghostty's
+# This prevents loading user's Ghostty config from ~/Library/Application Support/com.mitchellh.ghostty/
+sed -i '' 's/com\.mitchellh\.ghostty/win.aizen.app/g' "${WORKDIR}/ghostty/src/build_config.zig"
+
 ZIG_FLAGS=(
     -Dapp-runtime=none
     -Demit-xcframework=false
