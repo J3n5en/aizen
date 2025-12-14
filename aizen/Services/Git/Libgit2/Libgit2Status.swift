@@ -257,7 +257,9 @@ extension Libgit2Repository {
             }
             defer { git_object_free(c) }
 
-            // Reset file in index to HEAD state
+            // Use git_reset_default - this resets the index entry to match HEAD
+            // For files in HEAD: resets to HEAD version
+            // For new files (not in HEAD): removes from index entirely
             var pathspec = git_strarray()
             var patterns: [UnsafeMutablePointer<CChar>?] = [strdup(filePath)]
             defer { patterns.forEach { free($0) } }
@@ -269,7 +271,7 @@ extension Libgit2Repository {
 
             let resetError = git_reset_default(ptr, c, &pathspec)
             guard resetError == 0 else {
-                throw Libgit2Error.from(resetError, context: "reset default")
+                throw Libgit2Error.from(resetError, context: "unstage '\(filePath)'")
             }
         } else {
             // No HEAD - remove from index entirely
@@ -278,12 +280,12 @@ extension Libgit2Repository {
 
             let removeError = git_index_remove_bypath(index, filePath)
             guard removeError == 0 else {
-                throw Libgit2Error.from(removeError, context: "index remove")
+                throw Libgit2Error.from(removeError, context: "index remove (no HEAD) '\(filePath)'")
             }
 
             let writeError = git_index_write(index)
             guard writeError == 0 else {
-                throw Libgit2Error.from(writeError, context: "index write")
+                throw Libgit2Error.from(writeError, context: "index write (no HEAD) '\(filePath)'")
             }
         }
     }

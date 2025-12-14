@@ -448,15 +448,11 @@ class XcodeBuildManager: ObservableObject {
 
         // Fallback: terminate by PID if we don't have process reference
         if let pid = await MainActor.run(body: { self.launchedPID }) {
-            let killProcess = Process()
-            killProcess.executableURL = URL(fileURLWithPath: "/bin/kill")
-            killProcess.arguments = [String(pid)]
-            killProcess.standardOutput = Pipe()
-            killProcess.standardError = Pipe()
-
             do {
-                try killProcess.run()
-                killProcess.waitUntilExit()
+                _ = try await ProcessExecutor.shared.execute(
+                    executable: "/bin/kill",
+                    arguments: [String(pid)]
+                )
                 logger.debug("Terminated previous app with PID \(pid)")
                 try? await Task.sleep(nanoseconds: 300_000_000)
             } catch {
@@ -469,21 +465,13 @@ class XcodeBuildManager: ObservableObject {
         // Use pgrep to find the PID of the app we just launched
         let appName = (appPath as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "")
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        process.arguments = ["-n", appName] // -n returns newest matching process
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            let result = try await ProcessExecutor.shared.executeWithOutput(
+                executable: "/usr/bin/pgrep",
+                arguments: ["-n", appName] // -n returns newest matching process
+            )
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               let pid = Int32(output) {
+            if let pid = Int32(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 logger.debug("Found PID \(pid) for \(appName)")
                 return pid
             }
@@ -543,9 +531,6 @@ class XcodeBuildManager: ObservableObject {
 
     private func findBuiltAppWithDestination(project: XcodeProject, scheme: String, destination: XcodeDestination?) async throws -> String? {
         // Get the build settings to find the built product path
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-
         var arguments = ["-showBuildSettings", "-scheme", scheme]
         if project.isWorkspace {
             arguments.append(contentsOf: ["-workspace", project.path])
@@ -556,17 +541,14 @@ class XcodeBuildManager: ObservableObject {
         if let destination = destination {
             arguments.append(contentsOf: ["-destination", destination.destinationString])
         }
-        process.arguments = arguments
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
+        let result = try await ProcessExecutor.shared.executeWithOutput(
+            executable: "/usr/bin/xcodebuild",
+            arguments: arguments
+        )
 
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return nil }
+        let output = result.stdout
+        guard !output.isEmpty else { return nil }
 
         // Look for BUILT_PRODUCTS_DIR and FULL_PRODUCT_NAME
         var builtProductsDir: String?

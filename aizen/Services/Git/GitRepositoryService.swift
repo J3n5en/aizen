@@ -28,21 +28,23 @@ class GitRepositoryService: ObservableObject {
 
     // MARK: - Public API - Staging Operations
 
-    func stageFile(_ file: String, onError: ((Error) -> Void)? = nil) {
+    func stageFile(_ file: String, onSuccess: (() -> Void)? = nil, onError: ((Error) -> Void)? = nil) {
         Task { [weak self] in
             guard let self = self else { return }
             await self.executeOperationBackground(
                 { try await self.stagingService.stageFile(at: self.worktreePath, file: file) },
+                onSuccess: self.makeRefreshingSuccessHandler(original: onSuccess),
                 onError: onError
             )
         }
     }
 
-    func unstageFile(_ file: String, onError: ((Error) -> Void)? = nil) {
+    func unstageFile(_ file: String, onSuccess: (() -> Void)? = nil, onError: ((Error) -> Void)? = nil) {
         Task { [weak self] in
             guard let self = self else { return }
             await self.executeOperationBackground(
                 { try await self.stagingService.unstageFile(at: self.worktreePath, file: file) },
+                onSuccess: self.makeRefreshingSuccessHandler(original: onSuccess),
                 onError: onError
             )
         }
@@ -53,17 +55,18 @@ class GitRepositoryService: ObservableObject {
             guard let self = self else { return }
             await self.executeOperationBackground(
                 { try await self.stagingService.stageAll(at: self.worktreePath) },
-                onSuccess: onSuccess,
+                onSuccess: self.makeRefreshingSuccessHandler(original: onSuccess),
                 onError: onError
             )
         }
     }
 
-    func unstageAll(onError: ((Error) -> Void)? = nil) {
+    func unstageAll(onSuccess: (() -> Void)? = nil, onError: ((Error) -> Void)? = nil) {
         Task { [weak self] in
             guard let self = self else { return }
             await self.executeOperationBackground(
                 { try await self.stagingService.unstageAll(at: self.worktreePath) },
+                onSuccess: self.makeRefreshingSuccessHandler(original: onSuccess),
                 onError: onError
             )
         }

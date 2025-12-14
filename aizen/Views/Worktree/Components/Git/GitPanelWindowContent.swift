@@ -389,25 +389,16 @@ struct GitPanelWindowContent: View {
         guard !path.isEmpty else { return }
 
         if let commit = commit {
-            // Load diff for specific commit - use shell for git show (commit display)
-            let output = await Task.detached {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-                process.arguments = ["show", "--format=", commit.id]
-                process.currentDirectoryURL = URL(fileURLWithPath: path)
-
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = FileHandle.nullDevice
-
-                guard (try? process.run()) != nil else { return nil as String? }
-                process.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                return String(data: data, encoding: .utf8)
-            }.value
-
-            if let commitDiff = output {
-                diffOutput = commitDiff
+            // Load diff for specific commit using async ProcessExecutor
+            do {
+                let result = try await ProcessExecutor.shared.executeWithOutput(
+                    executable: "/usr/bin/git",
+                    arguments: ["show", "--format=", commit.id],
+                    workingDirectory: path
+                )
+                diffOutput = result.stdout
+            } catch {
+                logger.error("Failed to load commit diff: \(error.localizedDescription)")
             }
         } else {
             // Load working changes diff

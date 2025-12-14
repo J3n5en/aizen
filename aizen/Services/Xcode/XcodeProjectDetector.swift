@@ -85,36 +85,27 @@ actor XcodeProjectDetector {
     // MARK: - Scheme Listing
 
     private func listSchemes(projectPath: String, isWorkspace: Bool) async throws -> [String] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-
         var arguments = ["-list", "-json"]
         if isWorkspace {
             arguments.append(contentsOf: ["-workspace", projectPath])
         } else {
             arguments.append(contentsOf: ["-project", projectPath])
         }
-        process.arguments = arguments
 
         let environment = ShellEnvironment.loadUserShellEnvironment()
-        process.environment = environment
 
-        let pipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = errorPipe
+        let result = try await ProcessExecutor.shared.executeWithOutput(
+            executable: "/usr/bin/xcodebuild",
+            arguments: arguments,
+            environment: environment
+        )
 
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            logger.error("xcodebuild -list failed: \(errorMessage)")
-            throw XcodeError.commandFailed(errorMessage)
+        guard result.succeeded else {
+            logger.error("xcodebuild -list failed: \(result.stderr)")
+            throw XcodeError.commandFailed(result.stderr)
         }
+
+        let data = result.stdout.data(using: .utf8) ?? Data()
 
         let decoder = JSONDecoder()
         let response = try decoder.decode(XcodeBuildListResponse.self, from: data)
@@ -132,29 +123,23 @@ actor XcodeProjectDetector {
 
     func getBundleIdentifier(project: XcodeProject, scheme: String) async throws -> String? {
         // Build settings contain PRODUCT_BUNDLE_IDENTIFIER
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-
         var arguments = ["-showBuildSettings", "-scheme", scheme, "-json"]
         if project.isWorkspace {
             arguments.append(contentsOf: ["-workspace", project.path])
         } else {
             arguments.append(contentsOf: ["-project", project.path])
         }
-        process.arguments = arguments
 
         let environment = ShellEnvironment.loadUserShellEnvironment()
-        process.environment = environment
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
+        let result = try await ProcessExecutor.shared.executeWithOutput(
+            executable: "/usr/bin/xcodebuild",
+            arguments: arguments,
+            environment: environment
+        )
 
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return nil }
+        let output = result.stdout
+        guard !output.isEmpty else { return nil }
 
         // Parse JSON output for PRODUCT_BUNDLE_IDENTIFIER
         // The output is an array of build settings objects

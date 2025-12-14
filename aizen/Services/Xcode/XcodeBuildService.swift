@@ -119,38 +119,48 @@ actor XcodeBuildService {
         do {
             logger.info("Starting build: xcodebuild \(arguments.joined(separator: " "))")
             try process.run()
-            process.waitUntilExit()
 
-            // Clean up handlers
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            // Use async termination instead of blocking waitUntilExit
+            await withCheckedContinuation { (terminationContinuation: CheckedContinuation<Void, Never>) in
+                process.terminationHandler = { proc in
+                    // Clean up handlers
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
 
-            // Read any remaining data
-            let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    // Read any remaining data
+                    let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
 
-            outputLock.lock()
-            if let str = String(data: remainingStdout, encoding: .utf8) {
-                outputLog += str
+                    outputLock.lock()
+                    if let str = String(data: remainingStdout, encoding: .utf8) {
+                        outputLog += str
+                    }
+                    if let str = String(data: remainingStderr, encoding: .utf8) {
+                        errorLog += str
+                    }
+                    let fullLog = outputLog + errorLog
+                    outputLock.unlock()
+
+                    let duration = Date().timeIntervalSince(startTime)
+
+                    if proc.terminationStatus == 0 {
+                        continuation.yield(.succeeded)
+                    } else {
+                        let errors = self.parseBuildErrors(from: fullLog)
+                        let errorSummary = errors.first?.message ?? "Build failed with exit code \(proc.terminationStatus)"
+                        continuation.yield(.failed(error: errorSummary, log: fullLog))
+                    }
+
+                    terminationContinuation.resume()
+                }
             }
-            if let str = String(data: remainingStderr, encoding: .utf8) {
-                errorLog += str
-            }
-            outputLock.unlock()
 
-            let fullLog = outputLog + errorLog
-            let duration = Date().timeIntervalSince(startTime)
-
+            // Check if cancelled after waiting
             if isCancelled {
+                outputLock.lock()
+                let fullLog = outputLog + errorLog
+                outputLock.unlock()
                 continuation.yield(.failed(error: "Build cancelled", log: fullLog))
-            } else if process.terminationStatus == 0 {
-                logger.info("Build succeeded in \(String(format: "%.1f", duration))s")
-                continuation.yield(.succeeded)
-            } else {
-                let errors = parseBuildErrors(from: fullLog)
-                let errorSummary = errors.first?.message ?? "Build failed with exit code \(process.terminationStatus)"
-                logger.error("Build failed: \(errorSummary)")
-                continuation.yield(.failed(error: errorSummary, log: fullLog))
             }
 
         } catch {

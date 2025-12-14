@@ -29,7 +29,7 @@ actor XcodeDeviceService {
         }
 
         // Add My Mac
-        destinations[.mac] = [createMacDestination()]
+        destinations[.mac] = [await createMacDestination()]
 
         return destinations
     }
@@ -37,23 +37,17 @@ actor XcodeDeviceService {
     // MARK: - Simulators
 
     private func listSimulators() async throws -> [XcodeDestination] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "list", "devices", "--json"]
+        let result = try await ProcessExecutor.shared.executeWithOutput(
+            executable: "/usr/bin/xcrun",
+            arguments: ["simctl", "list", "devices", "--json"]
+        )
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-        guard process.terminationStatus == 0 else {
+        guard result.succeeded else {
             logger.error("simctl list devices failed")
             return []
         }
+
+        let data = result.stdout.data(using: .utf8) ?? Data()
 
         let decoder = JSONDecoder()
         let response = try decoder.decode(SimctlDevicesResponse.self, from: data)
@@ -114,20 +108,16 @@ actor XcodeDeviceService {
         // Use devicectl to get devices with CoreDevice UUIDs (required for xcodebuild)
         let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("devicectl_\(UUID().uuidString).json")
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["devicectl", "list", "devices", "--json-output", tempFile.path]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        try process.run()
-        process.waitUntilExit()
+        let exitCode = try await ProcessExecutor.shared.execute(
+            executable: "/usr/bin/xcrun",
+            arguments: ["devicectl", "list", "devices", "--json-output", tempFile.path]
+        )
 
         defer {
             try? FileManager.default.removeItem(at: tempFile)
         }
 
-        guard process.terminationStatus == 0,
+        guard exitCode == 0,
               let jsonData = try? Data(contentsOf: tempFile) else {
             logger.warning("Failed to list devices via devicectl")
             return []
@@ -166,25 +156,18 @@ actor XcodeDeviceService {
         return destinations
     }
 
-    private func createMacDestination() -> XcodeDestination {
+    private func createMacDestination() async -> XcodeDestination {
         var macName = "My Mac"
 
         // Get Mac model name
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
-        process.arguments = ["SPHardwareDataType", "-detailLevel", "mini"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            let result = try await ProcessExecutor.shared.executeWithOutput(
+                executable: "/usr/sbin/system_profiler",
+                arguments: ["SPHardwareDataType", "-detailLevel", "mini"]
+            )
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                for line in output.components(separatedBy: "\n") {
+            if result.succeeded {
+                for line in result.stdout.components(separatedBy: "\n") {
                     if line.contains("Model Name:") {
                         let parts = line.components(separatedBy: ":")
                         if parts.count >= 2 {
@@ -211,18 +194,14 @@ actor XcodeDeviceService {
     // MARK: - Simulator Control
 
     func bootSimulatorIfNeeded(id: String) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "boot", id]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        try process.run()
-        process.waitUntilExit()
+        let exitCode = try await ProcessExecutor.shared.execute(
+            executable: "/usr/bin/xcrun",
+            arguments: ["simctl", "boot", id]
+        )
 
         // Exit code 149 means already booted, which is fine
-        if process.terminationStatus != 0 && process.terminationStatus != 149 {
-            logger.warning("Failed to boot simulator \(id), exit code: \(process.terminationStatus)")
+        if exitCode != 0 && exitCode != 149 {
+            logger.warning("Failed to boot simulator \(id), exit code: \(exitCode)")
         }
     }
 
@@ -234,46 +213,31 @@ actor XcodeDeviceService {
         try await Task.sleep(nanoseconds: 500_000_000)
 
         // Launch the app
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "launch", deviceId, bundleId]
+        let result = try await ProcessExecutor.shared.executeWithOutput(
+            executable: "/usr/bin/xcrun",
+            arguments: ["simctl", "launch", deviceId, bundleId]
+        )
 
-        let errorPipe = Pipe()
-        process.standardOutput = Pipe()
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            throw XcodeError.launchFailed(errorMessage)
+        if !result.succeeded {
+            throw XcodeError.launchFailed(result.stderr.isEmpty ? "Unknown error" : result.stderr)
         }
     }
 
     func openSimulatorApp() async {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "Simulator"]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        try? process.run()
+        _ = try? await ProcessExecutor.shared.execute(
+            executable: "/usr/bin/open",
+            arguments: ["-a", "Simulator"]
+        )
     }
 
     // MARK: - App Termination
 
     func terminateInSimulator(deviceId: String, bundleId: String) async {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "terminate", deviceId, bundleId]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            _ = try await ProcessExecutor.shared.execute(
+                executable: "/usr/bin/xcrun",
+                arguments: ["simctl", "terminate", deviceId, bundleId]
+            )
             logger.debug("Terminated \(bundleId) on simulator \(deviceId)")
         } catch {
             logger.debug("Failed to terminate app (may not be running): \(error.localizedDescription)")
@@ -282,15 +246,11 @@ actor XcodeDeviceService {
 
     func terminateMacApp(bundleId: String) async {
         // Use osascript to quit the app gracefully by bundle ID
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "tell application id \"\(bundleId)\" to quit"]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            _ = try await ProcessExecutor.shared.execute(
+                executable: "/usr/bin/osascript",
+                arguments: ["-e", "tell application id \"\(bundleId)\" to quit"]
+            )
             // Give the app a moment to quit gracefully
             try? await Task.sleep(nanoseconds: 500_000_000)
             logger.debug("Terminated Mac app with bundle ID \(bundleId)")
@@ -303,15 +263,11 @@ actor XcodeDeviceService {
         // Extract app name from path and use killall
         let appName = (appPath as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "")
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        process.arguments = [appName]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            _ = try await ProcessExecutor.shared.execute(
+                executable: "/usr/bin/killall",
+                arguments: [appName]
+            )
             logger.debug("Terminated Mac app: \(appName)")
         } catch {
             logger.debug("Failed to terminate Mac app (may not be running): \(error.localizedDescription)")
@@ -321,20 +277,13 @@ actor XcodeDeviceService {
     // MARK: - Physical Device Control
 
     func installOnDevice(deviceId: String, appPath: String) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["devicectl", "device", "install", "app", "--device", deviceId, appPath]
+        let result = try await ProcessExecutor.shared.executeWithOutput(
+            executable: "/usr/bin/xcrun",
+            arguments: ["devicectl", "device", "install", "app", "--device", deviceId, appPath]
+        )
 
-        let errorPipe = Pipe()
-        process.standardOutput = Pipe()
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+        if !result.succeeded {
+            let errorMessage = result.stderr.isEmpty ? "Unknown error" : result.stderr
             logger.error("Failed to install app on device: \(errorMessage)")
             throw XcodeError.installFailed(errorMessage)
         }
@@ -343,15 +292,11 @@ actor XcodeDeviceService {
     }
 
     func terminateOnDevice(deviceId: String, bundleId: String) async {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["devicectl", "device", "process", "terminate", "--device", deviceId, bundleId]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            _ = try await ProcessExecutor.shared.execute(
+                executable: "/usr/bin/xcrun",
+                arguments: ["devicectl", "device", "process", "terminate", "--device", deviceId, bundleId]
+            )
             logger.debug("Terminated \(bundleId) on device \(deviceId)")
         } catch {
             logger.debug("Failed to terminate app on device (may not be running): \(error.localizedDescription)")

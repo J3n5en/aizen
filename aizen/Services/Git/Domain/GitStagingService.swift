@@ -6,8 +6,10 @@
 //
 
 import Foundation
+import os.log
 
 actor GitStagingService {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen.app", category: "GitStagingService")
 
     func stageFile(at path: String, file: String) async throws {
         try await Task.detached {
@@ -17,10 +19,17 @@ actor GitStagingService {
     }
 
     func unstageFile(at path: String, file: String) async throws {
-        try await Task.detached {
-            let repo = try Libgit2Repository(path: path)
-            try repo.unstageFile(file)
-        }.value
+        logger.info("unstageFile called - path: \(path), file: \(file)")
+        do {
+            try await Task.detached {
+                let repo = try Libgit2Repository(path: path)
+                try repo.unstageFile(file)
+            }.value
+            logger.info("unstageFile succeeded for \(file)")
+        } catch {
+            logger.error("unstageFile failed for \(file): \(error.localizedDescription)")
+            throw error
+        }
     }
 
     func stageAll(at path: String) async throws {

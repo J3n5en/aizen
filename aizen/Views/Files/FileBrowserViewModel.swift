@@ -512,24 +512,33 @@ class FileBrowserViewModel: ObservableObject {
     private func loadGitIgnored(for basePath: String) async {
         var ignoredPaths = Set<String>()
 
-        // Get list of all files/dirs in expanded paths plus root
-        var pathsToCheck: [String] = []
+        // Get expanded paths snapshot before going off main thread
+        let expandedPathsSnapshot = expandedPaths
 
-        // Add root level items
-        if let items = try? FileManager.default.contentsOfDirectory(atPath: basePath) {
-            pathsToCheck.append(contentsOf: items)
-        }
+        // Get list of all files/dirs in expanded paths plus root (run off main thread)
+        let pathsToCheck: [String] = await Task.detached {
+            var paths: [String] = []
 
-        // Add items from expanded directories
-        for expandedPath in expandedPaths {
-            let relativePath = getRelativePath(for: expandedPath)
-            if let items = try? FileManager.default.contentsOfDirectory(atPath: expandedPath) {
-                for item in items {
-                    let itemRelPath = relativePath.isEmpty ? item : "\(relativePath)/\(item)"
-                    pathsToCheck.append(itemRelPath)
+            // Add root level items
+            if let items = try? FileManager.default.contentsOfDirectory(atPath: basePath) {
+                paths.append(contentsOf: items)
+            }
+
+            // Add items from expanded directories
+            for expandedPath in expandedPathsSnapshot {
+                let relativePath = expandedPath.hasPrefix(basePath)
+                    ? String(expandedPath.dropFirst(basePath.count + 1))
+                    : ""
+                if let items = try? FileManager.default.contentsOfDirectory(atPath: expandedPath) {
+                    for item in items {
+                        let itemRelPath = relativePath.isEmpty ? item : "\(relativePath)/\(item)"
+                        paths.append(itemRelPath)
+                    }
                 }
             }
-        }
+
+            return paths
+        }.value
 
         guard !pathsToCheck.isEmpty else { return }
 
@@ -539,24 +548,16 @@ class FileBrowserViewModel: ObservableObject {
             let batchEnd = min(batchStart + batchSize, pathsToCheck.count)
             let batch = Array(pathsToCheck[batchStart..<batchEnd])
 
-            // Use git check-ignore command (libgit2 doesn't have this functionality)
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = ["check-ignore"] + batch
-            process.currentDirectoryURL = URL(fileURLWithPath: basePath)
-
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-
+            // Use git check-ignore command with async execution (non-blocking)
             do {
-                try process.run()
-                process.waitUntilExit()
+                let result = try await ProcessExecutor.shared.executeWithOutput(
+                    executable: "/usr/bin/git",
+                    arguments: ["check-ignore"] + batch,
+                    workingDirectory: basePath
+                )
 
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
-
-                for line in output.split(separator: "\n") {
+                // git check-ignore returns exit code 1 when no files are ignored, which is fine
+                for line in result.stdout.split(separator: "\n") {
                     let path = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
                     if !path.isEmpty {
                         ignoredPaths.insert(path)
@@ -565,7 +566,6 @@ class FileBrowserViewModel: ObservableObject {
                     }
                 }
             } catch {
-                // git check-ignore returns exit code 1 when no files are ignored - ignore this
                 logger.debug("git check-ignore: \(error.localizedDescription)")
             }
         }

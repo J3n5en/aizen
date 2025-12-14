@@ -22,7 +22,7 @@ struct WorkspaceSidebarView: View {
     @State private var showingWorkspaceSheet = false
     @State private var showingWorkspaceSwitcher = false
     @State private var workspaceToEdit: Workspace?
-    @State private var refreshTimer: Timer?
+    @State private var refreshTask: Task<Void, Never>?
 
     private let refreshInterval: TimeInterval = 30.0
 
@@ -58,35 +58,46 @@ struct WorkspaceSidebarView: View {
     }
 
     private func startPeriodicRefresh() {
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { _ in
-            refreshAllRepositories()
+        // Cancel any existing refresh task
+        refreshTask?.cancel()
+
+        // Use Task-based periodic refresh instead of Timer (runs off main thread)
+        refreshTask = Task {
+            while !Task.isCancelled {
+                // Wait for refresh interval
+                try? await Task.sleep(for: .seconds(refreshInterval))
+
+                guard !Task.isCancelled else { break }
+
+                // Perform refresh
+                await refreshAllRepositories()
+            }
         }
     }
 
     private func stopPeriodicRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 
-    private func refreshAllRepositories() {
-        Task {
-            // Prioritize selected repository for immediate refresh
-            if let selected = selectedRepository {
-                do {
-                    try await repositoryManager.refreshRepository(selected)
-                } catch {
-                    logger.error("Failed to refresh selected repository \(selected.name ?? "unknown"): \(error.localizedDescription)")
-                }
+    private func refreshAllRepositories() async {
+        // Prioritize selected repository for immediate refresh
+        if let selected = selectedRepository {
+            do {
+                try await repositoryManager.refreshRepository(selected)
+            } catch {
+                logger.error("Failed to refresh selected repository \(selected.name ?? "unknown"): \(error.localizedDescription)")
             }
+        }
 
-            // Background refresh other repos with stagger to reduce I/O contention
-            for repository in filteredRepositories where repository.id != selectedRepository?.id {
-                do {
-                    try await repositoryManager.refreshRepository(repository)
-                    try await Task.sleep(for: .milliseconds(100))
-                } catch {
-                    logger.error("Failed to refresh repository \(repository.name ?? "unknown"): \(error.localizedDescription)")
-                }
+        // Background refresh other repos with stagger to reduce I/O contention
+        for repository in filteredRepositories where repository.id != selectedRepository?.id {
+            guard !Task.isCancelled else { break }
+            do {
+                try await repositoryManager.refreshRepository(repository)
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                logger.error("Failed to refresh repository \(repository.name ?? "unknown"): \(error.localizedDescription)")
             }
         }
     }

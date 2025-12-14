@@ -49,10 +49,13 @@ class GitOperationHandler {
     }
 
     func unstageAll() {
-        gitService.unstageAll { [logger] error in
-            ToastManager.shared.show("Failed to unstage files", type: .error)
-            logger.error("Failed to unstage all files: \(error)")
-        }
+        gitService.unstageAll(
+            onSuccess: nil,
+            onError: { [logger] error in
+                ToastManager.shared.show("Failed to unstage files", type: .error)
+                logger.error("Failed to unstage all files: \(error)")
+            }
+        )
     }
 
     // MARK: - Commit Operations
