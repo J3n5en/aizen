@@ -157,13 +157,9 @@ class GitOperationHandler {
     // MARK: - Remote Operations
 
     func fetch(repository: Repository?) {
-        ToastManager.shared.showLoading("Fetching changes...")
         gitService.fetch(
-            onSuccess: {
-                ToastManager.shared.show("Fetch completed successfully", type: .success)
-            },
+            onSuccess: nil,
             onError: { [logger] error in
-                ToastManager.shared.show("Fetch failed: \(error.localizedDescription)", type: .error, duration: 5.0)
                 logger.error("Failed to fetch changes: \(error)")
             }
         )
@@ -176,13 +172,9 @@ class GitOperationHandler {
     }
 
     func pull(repository: Repository?) {
-        ToastManager.shared.showLoading("Pulling changes...")
         gitService.pull(
-            onSuccess: {
-                ToastManager.shared.show("Pull completed successfully", type: .success)
-            },
+            onSuccess: nil,
             onError: { [logger] error in
-                ToastManager.shared.show("Pull failed: \(error.localizedDescription)", type: .error, duration: 5.0)
                 logger.error("Failed to pull changes: \(error)")
             }
         )
@@ -196,7 +188,6 @@ class GitOperationHandler {
 
     func push(repository: Repository?) {
         logger.info("Push initiated - checking remote...")
-        ToastManager.shared.showLoading("Checking remote...")
 
         // Fetch first to check for remote changes
         gitService.fetch(
@@ -209,11 +200,7 @@ class GitOperationHandler {
 
                 if status.behindCount > 0 {
                     self.logger.warning("Remote has \(status.behindCount) commits ahead, blocking push")
-                    ToastManager.shared.show(
-                        "Remote has \(status.behindCount) new commit(s). Pull manually before pushing.",
-                        type: .error,
-                        duration: 5.0
-                    )
+                    // User needs to pull first - operation completes without pushing
                 } else {
                     // No remote changes, proceed with push
                     self.logger.info("No remote changes detected, proceeding with push")
@@ -230,15 +217,12 @@ class GitOperationHandler {
 
     private func performPush(repository: Repository?) {
         logger.info("performPush called")
-        ToastManager.shared.showLoading("Pushing changes...")
         gitService.push(
             onSuccess: { [self] in
                 self.logger.info("Push completed successfully")
-                ToastManager.shared.show("Push completed successfully", type: .success)
             },
             onError: { [self] error in
                 self.logger.error("Failed to push changes: \(error)")
-                ToastManager.shared.show("Push failed: \(error.localizedDescription)", type: .error, duration: 5.0)
             }
         )
 
