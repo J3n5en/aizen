@@ -135,7 +135,7 @@ class GitOperationHandler {
         }
 
         if let repository = repository {
-            Task { [repositoryManager] in
+            Task.detached { [repositoryManager] in
                 try? await repositoryManager.refreshRepository(repository)
             }
         }
@@ -148,7 +148,7 @@ class GitOperationHandler {
         }
 
         if let repository = repository {
-            Task { [repositoryManager] in
+            Task.detached { [repositoryManager] in
                 try? await repositoryManager.refreshRepository(repository)
             }
         }
@@ -169,7 +169,7 @@ class GitOperationHandler {
         )
 
         if let repository = repository {
-            Task { [repositoryManager] in
+            Task.detached { [repositoryManager] in
                 try? await repositoryManager.refreshRepository(repository)
             }
         }
@@ -188,7 +188,7 @@ class GitOperationHandler {
         )
 
         if let repository = repository {
-            Task { [repositoryManager] in
+            Task.detached { [repositoryManager] in
                 try? await repositoryManager.refreshRepository(repository)
             }
         }
@@ -243,7 +243,7 @@ class GitOperationHandler {
         )
 
         if let repository = repository {
-            Task { [repositoryManager] in
+            Task.detached { [repositoryManager] in
                 try? await repositoryManager.refreshRepository(repository)
             }
         }
