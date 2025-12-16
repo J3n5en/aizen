@@ -19,17 +19,6 @@ struct TerminalPresetFormView: View {
     let onSave: (TerminalPreset) -> Void
     let onCancel: () -> Void
 
-    private let commonIcons = [
-        "terminal", "terminal.fill", "apple.terminal", "apple.terminal.fill",
-        "chevron.left.forwardslash.chevron.right", "curlybraces",
-        "brain", "brain.head.profile", "sparkles",
-        "command", "option", "control",
-        "gear", "wrench.and.screwdriver", "hammer",
-        "play", "play.fill", "bolt", "bolt.fill",
-        "arrow.trianglehead.2.clockwise", "arrow.clockwise",
-        "doc.text", "folder", "server.rack"
-    ]
-
     init(
         existingPreset: TerminalPreset? = nil,
         onSave: @escaping (TerminalPreset) -> Void,
@@ -96,27 +85,6 @@ struct TerminalPresetFormView: View {
                         }
                         .buttonStyle(.bordered)
                     }
-
-                    // Quick icon selection
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(36)), count: 8), spacing: 8) {
-                        ForEach(commonIcons, id: \.self) { icon in
-                            Button {
-                                selectedIcon = icon
-                            } label: {
-                                Image(systemName: icon)
-                                    .font(.system(size: 16))
-                                    .frame(width: 32, height: 32)
-                                    .background(
-                                        selectedIcon == icon ?
-                                        Color.accentColor.opacity(0.2) :
-                                        Color(NSColor.controlBackgroundColor),
-                                        in: RoundedRectangle(cornerRadius: 6)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.top, 8)
                 }
             }
             .formStyle(.grouped)
@@ -143,7 +111,7 @@ struct TerminalPresetFormView: View {
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(width: 450, height: 480)
+        .frame(width: 450, height: 360)
         .sheet(isPresented: $showingIconPicker) {
             SFSymbolPickerView(selectedSymbol: $selectedIcon, isPresented: $showingIconPicker)
         }
