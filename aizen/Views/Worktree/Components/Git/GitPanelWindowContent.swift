@@ -38,6 +38,7 @@ struct GitPanelWindowContent: View {
     @State private var commentPopoverFilePath: String?
     @State private var showAgentPicker: Bool = false
     @State private var cachedChangedFiles: [String] = []
+    @State private var gitIndexWatcher: GitIndexWatcher?
 
     @StateObject private var reviewManager = ReviewSessionManager()
 
@@ -88,9 +89,15 @@ struct GitPanelWindowContent: View {
             gitRepositoryService.reloadStatus()
             reviewManager.load(for: worktreePath)
             updateChangedFilesCache()
+            setupGitWatcher()
+        }
+        .onDisappear {
+            gitIndexWatcher?.stopWatching()
+            gitIndexWatcher = nil
         }
         .onChange(of: gitStatus) { _ in
             updateChangedFilesCache()
+            reloadDiff()
         }
         .onChange(of: selectedHistoryCommit) { commit in
             Task {
@@ -366,6 +373,14 @@ struct GitPanelWindowContent: View {
     }
 
     // MARK: - Helper Methods
+
+    private func setupGitWatcher() {
+        let watcher = GitIndexWatcher(worktreePath: worktreePath)
+        watcher.startWatching { [weak gitRepositoryService] in
+            gitRepositoryService?.reloadStatus()
+        }
+        gitIndexWatcher = watcher
+    }
 
     private func updateChangedFilesCache() {
         var files = Set<String>()
