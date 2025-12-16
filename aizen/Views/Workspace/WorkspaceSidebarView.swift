@@ -276,32 +276,126 @@ struct RepositoryRow: View {
     @State private var showingRemoveConfirmation = false
     @State private var alsoDeleteFromFilesystem = false
 
+    @AppStorage("defaultTerminalBundleId") private var defaultTerminalBundleId: String?
+    @AppStorage("defaultEditorBundleId") private var defaultEditorBundleId: String?
+
+    private var defaultTerminal: DetectedApp? {
+        guard let bundleId = defaultTerminalBundleId else { return nil }
+        return AppDetector.shared.getTerminals().first { $0.bundleIdentifier == bundleId }
+    }
+
+    private var defaultEditor: DetectedApp? {
+        guard let bundleId = defaultEditorBundleId else { return nil }
+        return AppDetector.shared.getEditors().first { $0.bundleIdentifier == bundleId }
+    }
+
+    private var finderApp: DetectedApp? {
+        AppDetector.shared.getApps(for: .finder).first
+    }
+
+    private func sortedApps(_ apps: [DetectedApp], defaultBundleId: String?) -> [DetectedApp] {
+        guard let defaultId = defaultBundleId else { return apps }
+        var sorted = apps.filter { $0.bundleIdentifier != defaultId }
+        if let defaultApp = apps.first(where: { $0.bundleIdentifier == defaultId }) {
+            sorted.insert(defaultApp, at: 0)
+        }
+        return sorted
+    }
+
     var body: some View {
         repositoryLabel
             .background(selectionBackground)
             .contextMenu {
+                // Open in Terminal (with real name and icon)
                 Button {
                     if let path = repository.path {
-                        repositoryManager.openInTerminal(path)
+                        if let terminal = defaultTerminal {
+                            AppDetector.shared.openPath(path, with: terminal)
+                        } else {
+                            repositoryManager.openInTerminal(path)
+                        }
                     }
                 } label: {
-                    Label("workspace.repository.openTerminal", systemImage: "terminal")
+                    if let terminal = defaultTerminal {
+                        AppMenuLabel(app: terminal)
+                    } else {
+                        Label("workspace.repository.openTerminal", systemImage: "terminal")
+                    }
                 }
 
+                // Open in Finder (with real icon)
                 Button {
                     if let path = repository.path {
                         repositoryManager.openInFinder(path)
                     }
                 } label: {
-                    Label("workspace.repository.openFinder", systemImage: "folder")
+                    if let finder = finderApp {
+                        AppMenuLabel(app: finder)
+                    } else {
+                        Label("workspace.repository.openFinder", systemImage: "folder")
+                    }
                 }
 
+                // Open in Editor (with real name and icon)
                 Button {
                     if let path = repository.path {
-                        repositoryManager.openInEditor(path)
+                        if let editor = defaultEditor {
+                            AppDetector.shared.openPath(path, with: editor)
+                        } else {
+                            repositoryManager.openInEditor(path)
+                        }
                     }
                 } label: {
-                    Label("workspace.repository.openEditor", systemImage: "chevron.left.forwardslash.chevron.right")
+                    if let editor = defaultEditor {
+                        AppMenuLabel(app: editor)
+                    } else {
+                        Label("workspace.repository.openEditor", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+                }
+
+                // Open in... submenu
+                Menu {
+                    Text("Terminals")
+                        .font(.caption)
+
+                    ForEach(sortedApps(AppDetector.shared.getTerminals(), defaultBundleId: defaultTerminalBundleId)) { terminal in
+                        Button {
+                            if let path = repository.path {
+                                AppDetector.shared.openPath(path, with: terminal)
+                            }
+                        } label: {
+                            HStack {
+                                AppMenuLabel(app: terminal)
+                                if terminal.bundleIdentifier == defaultTerminalBundleId {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Text("Editors")
+                        .font(.caption)
+
+                    ForEach(sortedApps(AppDetector.shared.getEditors(), defaultBundleId: defaultEditorBundleId)) { editor in
+                        Button {
+                            if let path = repository.path {
+                                AppDetector.shared.openPath(path, with: editor)
+                            }
+                        } label: {
+                            HStack {
+                                AppMenuLabel(app: editor)
+                                if editor.bundleIdentifier == defaultEditorBundleId {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Open in...", systemImage: "arrow.up.forward.app")
                 }
 
                 Button {

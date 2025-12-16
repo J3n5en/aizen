@@ -52,17 +52,36 @@ class AppDetector: ObservableObject {
         ("Visual Studio Code", "com.microsoft.VSCode", .editor),
         ("VSCodium", "com.visualstudio.code.oss", .editor),
         ("Cursor", "com.todesktop.230313mzl4w4u92", .editor),
+        ("Windsurf", "com.codeium.windsurf", .editor),
         ("Sublime Text", "com.sublimetext.4", .editor),
         ("Nova", "com.panic.Nova", .editor),
         ("TextMate", "com.macromates.TextMate", .editor),
         ("Zed", "dev.zed.Zed", .editor),
+
+        // JetBrains IDEs
+        ("Android Studio", "com.google.android.studio", .editor),
         ("IntelliJ IDEA", "com.jetbrains.intellij", .editor),
+        ("IntelliJ IDEA CE", "com.jetbrains.intellij.ce", .editor),
         ("WebStorm", "com.jetbrains.WebStorm", .editor),
         ("PyCharm", "com.jetbrains.pycharm", .editor),
+        ("PyCharm CE", "com.jetbrains.pycharm.ce", .editor),
+        ("CLion", "com.jetbrains.CLion", .editor),
+        ("GoLand", "com.jetbrains.goland", .editor),
+        ("PhpStorm", "com.jetbrains.PhpStorm", .editor),
+        ("Rider", "com.jetbrains.rider", .editor),
+        ("AppCode", "com.jetbrains.AppCode", .editor),
+        ("DataGrip", "com.jetbrains.datagrip", .editor),
         ("RustRover", "com.jetbrains.rustrover", .editor),
         ("Fleet", "com.jetbrains.fleet", .editor),
+
+        // Other editors
         ("Atom", "com.github.atom", .editor),
         ("BBEdit", "com.barebones.bbedit", .editor),
+        ("CotEditor", "com.coteditor.CotEditor", .editor),
+        ("MacVim", "org.vim.MacVim", .editor),
+        ("Emacs", "org.gnu.Emacs", .editor),
+        ("Brackets", "io.brackets.appshell", .editor),
+        ("TextEdit", "com.apple.TextEdit", .editor),
 
         // System
         ("Finder", "com.apple.finder", .finder),

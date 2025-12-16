@@ -187,49 +187,27 @@ class GitOperationHandler {
     }
 
     func push(repository: Repository?) {
-        logger.info("Push initiated - checking remote...")
+        logger.info("Push initiated - using combined fetch+push operation")
 
-        // Fetch first to check for remote changes
-        gitService.fetch(
-            onSuccess: { [self] in
-                self.logger.info("Fetch completed successfully in push flow")
-
-                // After fetch, check if we're behind
-                let status = self.gitService.currentStatus
-                self.logger.info("Current status - ahead: \(status.aheadCount), behind: \(status.behindCount)")
-
-                if status.behindCount > 0 {
-                    self.logger.warning("Remote has \(status.behindCount) commits ahead, blocking push")
-                    // User needs to pull first - operation completes without pushing
+        // Use combined fetch-then-push to keep isOperationPending true throughout
+        gitService.fetchThenPush(
+            onSuccess: { [self] didPush in
+                if didPush {
+                    self.logger.info("Push completed successfully")
                 } else {
-                    // No remote changes, proceed with push
-                    self.logger.info("No remote changes detected, proceeding with push")
-                    self.performPush(repository: repository)
+                    self.logger.warning("Push skipped - remote has commits ahead, pull required")
+                }
+
+                // Refresh repository in background
+                if let repository = repository {
+                    Task.detached { [repositoryManager] in
+                        try? await repositoryManager.refreshRepository(repository)
+                    }
                 }
             },
             onError: { [self] error in
-                self.logger.error("Fetch failed in push flow: \(error.localizedDescription)")
-                // Fetch failed, try push anyway
-                self.performPush(repository: repository)
+                self.logger.error("Push operation failed: \(error.localizedDescription)")
             }
         )
-    }
-
-    private func performPush(repository: Repository?) {
-        logger.info("performPush called")
-        gitService.push(
-            onSuccess: { [self] in
-                self.logger.info("Push completed successfully")
-            },
-            onError: { [self] error in
-                self.logger.error("Failed to push changes: \(error)")
-            }
-        )
-
-        if let repository = repository {
-            Task.detached { [repositoryManager] in
-                try? await repositoryManager.refreshRepository(repository)
-            }
-        }
     }
 }
