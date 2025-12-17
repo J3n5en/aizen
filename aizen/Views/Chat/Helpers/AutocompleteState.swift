@@ -33,7 +33,8 @@ enum AutocompleteItem: Identifiable, Equatable {
         case .file(let result):
             return "file:\(result.path)"
         case .command(let cmd):
-            return "cmd:\(cmd.name)"
+            // Include description to handle duplicate command names
+            return "cmd:\(cmd.name):\(cmd.description)"
         }
     }
 
