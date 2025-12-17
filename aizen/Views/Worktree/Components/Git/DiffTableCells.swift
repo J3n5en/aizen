@@ -26,13 +26,13 @@ class DiffNSRowView: NSTableRowView {
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
-        if isSelected {
-            // Draw system selection first
-            super.drawSelection(in: dirtyRect)
-            // Add a left border for extra visibility
-            NSColor.controlAccentColor.setFill()
-            NSRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
-        }
+        guard isSelected else { return }
+        // Subtle background overlay
+        NSColor.labelColor.withAlphaComponent(0.1).setFill()
+        bounds.fill()
+        // Left border indicator
+        NSColor.secondaryLabelColor.setFill()
+        NSRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
     }
 }
 

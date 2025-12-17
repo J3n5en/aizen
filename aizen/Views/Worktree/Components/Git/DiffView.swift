@@ -8,6 +8,35 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Custom Table View with Copy Support
+
+class DiffTableView: NSTableView {
+    weak var coordinator: DiffView.Coordinator?
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "c" {
+            copy(nil)
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    @objc func copy(_ sender: Any?) {
+        guard let coordinator = coordinator else { return }
+        let selectedContent = coordinator.getSelectedContent()
+        guard !selectedContent.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(selectedContent, forType: .string)
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(copy(_:)) {
+            return selectedRowIndexes.count > 0
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+}
+
 struct DiffView: NSViewRepresentable {
     // Input mode 1: Raw diff string (for multi-file view)
     private let diffOutput: String?
@@ -75,7 +104,8 @@ struct DiffView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        let tableView = NSTableView()
+        let tableView = DiffTableView()
+        tableView.coordinator = context.coordinator
 
         tableView.style = .plain
         tableView.headerView = nil
@@ -436,6 +466,24 @@ struct DiffView: NSViewRepresentable {
                 }
             )
             return cell
+        }
+
+        func getSelectedContent() -> String {
+            guard let tableView = tableView else { return "" }
+            var lines: [String] = []
+            for rowIndex in tableView.selectedRowIndexes {
+                let row = getRow(at: rowIndex)
+                switch row {
+                case .fileHeader(let path):
+                    lines.append("--- \(path) ---")
+                case .line(let diffLine):
+                    let marker = diffLine.type.marker
+                    lines.append("\(marker)\(diffLine.content)")
+                case .lazyLine:
+                    break
+                }
+            }
+            return lines.joined(separator: "\n")
         }
     }
 }
