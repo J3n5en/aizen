@@ -8,22 +8,22 @@
 import SwiftUI
 
 struct InlineAutocompleteView: View {
-    let state: AutocompleteState
+    @ObservedObject var handler: UnifiedAutocompleteHandler
     let onTap: (Int) -> Void
     let onSelect: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let trigger = state.trigger {
+            if let trigger = handler.state.trigger {
                 AutocompleteHeader(trigger: trigger)
             }
 
-            if state.items.isEmpty {
+            if handler.state.items.isEmpty {
                 emptyStateView
             } else {
                 AutocompleteListView(
-                    items: state.items,
-                    selectedIndex: state.selectedIndex,
+                    items: handler.state.items,
+                    selectedIndex: handler.state.selectedIndex,
                     onTap: { index in
                         onTap(index)
                     }
@@ -50,7 +50,7 @@ struct InlineAutocompleteView: View {
     }
 }
 
-// Separate view to ensure proper re-rendering when selectedIndex changes
+// Separate view for the list with proper scroll handling
 private struct AutocompleteListView: View {
     let items: [AutocompleteItem]
     let selectedIndex: Int
@@ -74,10 +74,11 @@ private struct AutocompleteListView: View {
             }
             .frame(maxHeight: 250)
             .scrollDisabled(items.count <= 5)
-            .onAppear {
-                // Scroll to selected item when view appears/recreates
-                if selectedIndex >= 0 && selectedIndex < items.count {
-                    proxy.scrollTo(selectedIndex, anchor: nil)
+            .onChange(of: selectedIndex) { newIndex in
+                if newIndex >= 0 && newIndex < items.count {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo(newIndex, anchor: nil)
+                    }
                 }
             }
         }

@@ -273,18 +273,22 @@ struct ChatSessionView: View {
 
         // Show window when active (even if items empty - shows "no matches")
         if state.isActive, let parentWindow = parentWindow {
-            // Pass state directly to ensure items/selection sync
-            let contentView = InlineAutocompleteView(
-                state: state,
-                onTap: { index in
-                    viewModel.autocompleteHandler.state.selectedIndex = index
-                    viewModel.handleAutocompleteSelection()
-                },
-                onSelect: {
-                    viewModel.handleAutocompleteSelection()
-                }
-            )
-            window.setContent(contentView, itemCount: state.items.count)
+            // Only set content once - @ObservedObject handles updates
+            if !window.hasContent {
+                let contentView = InlineAutocompleteView(
+                    handler: viewModel.autocompleteHandler,
+                    onTap: { index in
+                        viewModel.autocompleteHandler.state.selectedIndex = index
+                        viewModel.handleAutocompleteSelection()
+                    },
+                    onSelect: {
+                        viewModel.handleAutocompleteSelection()
+                    }
+                )
+                window.setContent(contentView)
+            }
+            // Update window size based on item count
+            window.updateWindowSize(itemCount: state.items.count)
             window.show(at: state.cursorRect, attachedTo: parentWindow)
         } else {
             window.dismiss()

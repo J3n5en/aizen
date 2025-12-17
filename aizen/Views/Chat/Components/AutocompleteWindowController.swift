@@ -43,9 +43,15 @@ final class AutocompleteWindowController: NSWindowController {
         return panel
     }
 
-    func setContent<Content: View>(_ view: Content, itemCount: Int) {
-        let hostingView = NSHostingView(rootView: view)
+    private var currentHostingView: NSView?
 
+    func setContent<Content: View>(_ view: Content) {
+        let hostingView = NSHostingView(rootView: view)
+        currentHostingView = hostingView
+        window?.contentView = hostingView
+    }
+
+    func updateWindowSize(itemCount: Int) {
         // Calculate height based on content
         let headerHeight: CGFloat = 35
         let emptyStateHeight: CGFloat = 50
@@ -61,9 +67,11 @@ final class AutocompleteWindowController: NSWindowController {
         }
 
         let size = NSSize(width: Self.defaultWidth, height: contentHeight)
-        hostingView.frame = NSRect(origin: .zero, size: size)
         window?.setContentSize(size)
-        window?.contentView = hostingView
+    }
+
+    var hasContent: Bool {
+        currentHostingView != nil
     }
 
     func show(at cursorRect: NSRect, attachedTo parent: NSWindow) {
@@ -134,6 +142,9 @@ final class AutocompleteWindowController: NSWindowController {
         }
         window.orderOut(nil)
         parentWindow = nil
+        // Reset content so it gets recreated next time with fresh handler reference
+        currentHostingView = nil
+        window.contentView = nil
     }
 
     var isVisible: Bool {
