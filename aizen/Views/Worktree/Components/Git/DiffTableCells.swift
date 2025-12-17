@@ -25,7 +25,15 @@ class DiffNSRowView: NSTableRowView {
         bounds.fill()
     }
 
-    override func drawSelection(in dirtyRect: NSRect) {}
+    override func drawSelection(in dirtyRect: NSRect) {
+        if isSelected {
+            // Draw system selection first
+            super.drawSelection(in: dirtyRect)
+            // Add a left border for extra visibility
+            NSColor.controlAccentColor.setFill()
+            NSRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
+        }
+    }
 }
 
 // MARK: - File Header Cell

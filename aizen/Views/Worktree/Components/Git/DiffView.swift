@@ -80,7 +80,8 @@ struct DiffView: NSViewRepresentable {
         tableView.style = .plain
         tableView.headerView = nil
         tableView.usesAlternatingRowBackgroundColors = false
-        tableView.selectionHighlightStyle = .none
+        tableView.selectionHighlightStyle = .regular
+        tableView.allowsMultipleSelection = true
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
         tableView.backgroundColor = .clear
         tableView.allowsColumnReordering = false
