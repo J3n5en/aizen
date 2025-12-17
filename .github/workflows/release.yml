@@ -30,11 +30,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
-      - name: Checkout LFS objects
-        run: git lfs pull
+      - name: Download libghostty from R2
+        run: |
+          curl -fsSL "${{ secrets.R2_PUBLIC_URL }}/libghostty.tar.gz" -o libghostty.tar.gz
+          tar -xzf libghostty.tar.gz -C Vendor/libghostty/
+          rm libghostty.tar.gz
 
       - name: Show Xcode version
         run: xcodebuild -version
