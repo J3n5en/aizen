@@ -9,6 +9,7 @@ import Foundation
 
 enum ChatAttachment: Identifiable, Hashable {
     case file(URL)
+    case image(Data, mimeType: String) // pasted image data
     case reviewComments(String) // markdown content
     case buildError(String) // build error log
 
@@ -16,6 +17,8 @@ enum ChatAttachment: Identifiable, Hashable {
         switch self {
         case .file(let url):
             return "file-\(url.absoluteString)"
+        case .image(let data, _):
+            return "image-\(data.hashValue)"
         case .reviewComments(let content):
             return "review-\(content.hashValue)"
         case .buildError(let content):
@@ -27,6 +30,8 @@ enum ChatAttachment: Identifiable, Hashable {
         switch self {
         case .file(let url):
             return url.lastPathComponent
+        case .image:
+            return "Pasted Image"
         case .reviewComments:
             return "Review Comments"
         case .buildError:
@@ -48,6 +53,8 @@ enum ChatAttachment: Identifiable, Hashable {
             default:
                 return "doc"
             }
+        case .image:
+            return "photo"
         case .reviewComments:
             return "text.bubble"
         case .buildError:
@@ -60,6 +67,9 @@ enum ChatAttachment: Identifiable, Hashable {
         switch self {
         case .file:
             // Files are handled separately by the agent protocol
+            return nil
+        case .image:
+            // Images are handled separately as ImageContent blocks
             return nil
         case .reviewComments(let content):
             return content
@@ -74,5 +84,26 @@ enum ChatAttachment: Identifiable, Hashable {
             return url
         }
         return nil
+    }
+
+    // Get image data and mime type if this is an image attachment
+    var imageData: (data: Data, mimeType: String)? {
+        if case .image(let data, let mimeType) = self {
+            return (data, mimeType)
+        }
+        return nil
+    }
+
+    // Check if this is an image (either pasted or file)
+    var isImage: Bool {
+        switch self {
+        case .image:
+            return true
+        case .file(let url):
+            let ext = url.pathExtension.lowercased()
+            return ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tiff", "bmp"].contains(ext)
+        default:
+            return false
+        }
     }
 }

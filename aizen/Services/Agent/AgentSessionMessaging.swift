@@ -52,12 +52,32 @@ extension AgentSession {
         let fullContent = prependedContent.isEmpty ? content : prependedContent + content
         contentBlocks.append(.text(TextContent(text: fullContent, annotations: nil, _meta: nil)))
 
-        // Add file attachments as resource blocks
+        // Add attachments as appropriate content blocks
         for attachment in attachments {
-            if case .file(let url) = attachment {
-                if let resourceBlock = try? await createResourceBlock(from: url) {
-                    contentBlocks.append(resourceBlock)
+            switch attachment {
+            case .image(let data, let mimeType):
+                // Pasted image - create ImageContent block
+                let imageContent = ImageContent(
+                    data: data.base64EncodedString(),
+                    mimeType: mimeType
+                )
+                contentBlocks.append(.image(imageContent))
+
+            case .file(let url):
+                // Check if it's an image file
+                if attachment.isImage {
+                    if let imageBlock = try? await createImageBlock(from: url) {
+                        contentBlocks.append(imageBlock)
+                    }
+                } else {
+                    if let resourceBlock = try? await createResourceBlock(from: url) {
+                        contentBlocks.append(resourceBlock)
+                    }
                 }
+
+            case .reviewComments, .buildError:
+                // These are handled above via contentForAgent
+                break
             }
         }
 
@@ -115,6 +135,37 @@ extension AgentSession {
         } catch {
             logger.error("Error cancelling prompt: \(error.localizedDescription)")
         }
+    }
+
+    /// Create an image content block from a file URL
+    func createImageBlock(from url: URL) async throws -> ContentBlock {
+        // Ensure we can access the file
+        guard url.startAccessingSecurityScopedResource() else {
+            throw AgentSessionError.custom("Cannot access file: \(url.lastPathComponent)")
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        // Check file size (limit to 10MB)
+        let maxFileSize = 10 * 1024 * 1024  // 10MB
+        let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        if let fileSize = fileAttributes[.size] as? Int64, fileSize > maxFileSize {
+            throw AgentSessionError.custom(
+                "Image too large: \(url.lastPathComponent) (\(fileSize / 1024 / 1024)MB). Maximum size is 10MB."
+            )
+        }
+
+        // Get MIME type
+        let mimeType = getMimeType(for: url) ?? "image/png"
+
+        // Read image data
+        let data = try await readDataFileAsync(url: url)
+
+        let imageContent = ImageContent(
+            data: data.base64EncodedString(),
+            mimeType: mimeType,
+            uri: url.absoluteString
+        )
+        return .image(imageContent)
     }
 
     /// Create a resource content block from a file URL

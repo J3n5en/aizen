@@ -30,6 +30,7 @@ struct ChatInputBar: View {
     let onSend: () -> Void
     let onCancel: () -> Void
     let onAutocompleteSelect: () -> Void
+    let onImagePaste: (Data, String) -> Void
 
     @State private var isHoveringInput = false
     @State private var dashPhase: CGFloat = 0
@@ -97,6 +98,7 @@ struct ChatInputBar: View {
                         onAutocompleteNavigate: { action in
                             handleAutocompleteNavigation(action)
                         },
+                        onImagePaste: onImagePaste,
                         pendingCursorPosition: $pendingCursorPosition
                     )
                     .font(.system(size: 14))

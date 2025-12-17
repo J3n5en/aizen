@@ -103,6 +103,14 @@ struct ImageContent: Codable {
     enum CodingKeys: String, CodingKey {
         case type, data, uri, mimeType, annotations, _meta
     }
+
+    init(data: String, mimeType: String, uri: String? = nil, annotations: Annotations? = nil, _meta: [String: AnyCodable]? = nil) {
+        self.data = data
+        self.mimeType = mimeType
+        self.uri = uri
+        self.annotations = annotations
+        self._meta = _meta
+    }
 }
 
 // MARK: - Audio Content

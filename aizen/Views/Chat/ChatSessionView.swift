@@ -131,7 +131,10 @@ struct ChatSessionView: View {
                             autocompleteHandler: viewModel.autocompleteHandler,
                             onSend: viewModel.sendMessage,
                             onCancel: viewModel.cancelCurrentPrompt,
-                            onAutocompleteSelect: viewModel.handleAutocompleteSelection
+                            onAutocompleteSelect: viewModel.handleAutocompleteSelection,
+                            onImagePaste: { data, mimeType in
+                                viewModel.attachments.append(.image(data, mimeType: mimeType))
+                            }
                         )
                         .padding(.horizontal, 20)
                     }

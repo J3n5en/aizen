@@ -18,6 +18,9 @@ struct CustomTextEditor: NSViewRepresentable {
     var onCursorChange: ((String, Int, NSRect) -> Void)?
     var onAutocompleteNavigate: ((AutocompleteNavigationAction) -> Bool)?
 
+    // Image paste callback - (imageData, mimeType)
+    var onImagePaste: ((Data, String) -> Void)?
+
     // Cursor position control - when set, moves cursor to this position after text update
     @Binding var pendingCursorPosition: Int?
 
@@ -46,6 +49,7 @@ struct CustomTextEditor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         let textView = nsView.documentView as! NSTextView
+
         if textView.string != text {
             textView.string = text
 
@@ -64,10 +68,11 @@ struct CustomTextEditor: NSViewRepresentable {
         }
         context.coordinator.onCursorChange = onCursorChange
         context.coordinator.onAutocompleteNavigate = onAutocompleteNavigate
+        context.coordinator.onImagePaste = onImagePaste
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit, onCursorChange: onCursorChange, onAutocompleteNavigate: onAutocompleteNavigate)
+        Coordinator(text: $text, onSubmit: onSubmit, onCursorChange: onCursorChange, onAutocompleteNavigate: onAutocompleteNavigate, onImagePaste: onImagePaste)
     }
 
     class Coordinator: NSObject, NSTextViewDelegate {
@@ -75,18 +80,102 @@ struct CustomTextEditor: NSViewRepresentable {
         let onSubmit: () -> Void
         var onCursorChange: ((String, Int, NSRect) -> Void)?
         var onAutocompleteNavigate: ((AutocompleteNavigationAction) -> Bool)?
+        var onImagePaste: ((Data, String) -> Void)?
         weak var textView: NSTextView?
+        private var eventMonitor: Any?
 
         init(
             text: Binding<String>,
             onSubmit: @escaping () -> Void,
             onCursorChange: ((String, Int, NSRect) -> Void)?,
-            onAutocompleteNavigate: ((AutocompleteNavigationAction) -> Bool)?
+            onAutocompleteNavigate: ((AutocompleteNavigationAction) -> Bool)?,
+            onImagePaste: ((Data, String) -> Void)?
         ) {
             _text = text
             self.onSubmit = onSubmit
             self.onCursorChange = onCursorChange
             self.onAutocompleteNavigate = onAutocompleteNavigate
+            self.onImagePaste = onImagePaste
+            super.init()
+            setupEventMonitor()
+        }
+
+        deinit {
+            if let monitor = eventMonitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+
+        private func setupEventMonitor() {
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self = self else { return event }
+
+                // Check for Cmd+V
+                if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "v" {
+                    // Check if our text view is first responder
+                    if let textView = self.textView,
+                       textView.window?.firstResponder === textView {
+                        // Try to handle image paste
+                        if self.handleImagePaste() {
+                            return nil // Consume the event
+                        }
+                    }
+                }
+                return event
+            }
+        }
+
+        private func handleImagePaste() -> Bool {
+            guard let onImagePaste = onImagePaste else { return false }
+
+            let pasteboard = NSPasteboard.general
+
+            // Check for PNG data first (most common for screenshots)
+            if let data = pasteboard.data(forType: .png) {
+                onImagePaste(data, "image/png")
+                return true
+            }
+
+            // Check for TIFF data (common for copied images)
+            if let data = pasteboard.data(forType: .tiff) {
+                // Convert TIFF to PNG for better compatibility
+                if let image = NSImage(data: data),
+                   let tiffData = image.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]) {
+                    onImagePaste(pngData, "image/png")
+                    return true
+                }
+            }
+
+            // Check for file URL that might be an image
+            if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+               let url = urls.first {
+                let ext = url.pathExtension.lowercased()
+                let imageExtensions = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tiff", "bmp"]
+                if imageExtensions.contains(ext) {
+                    if let data = try? Data(contentsOf: url) {
+                        let mimeType = mimeTypeForExtension(ext)
+                        onImagePaste(data, mimeType)
+                        return true
+                    }
+                }
+            }
+
+            return false
+        }
+
+        private func mimeTypeForExtension(_ ext: String) -> String {
+            switch ext.lowercased() {
+            case "png": return "image/png"
+            case "jpg", "jpeg": return "image/jpeg"
+            case "gif": return "image/gif"
+            case "webp": return "image/webp"
+            case "heic", "heif": return "image/heic"
+            case "tiff", "tif": return "image/tiff"
+            case "bmp": return "image/bmp"
+            default: return "image/png"
+            }
         }
 
         func textDidChange(_ notification: Notification) {
@@ -238,9 +327,19 @@ struct ChatAttachmentChip: View {
                 showingDetail = true
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: attachment.iconName)
-                        .font(.system(size: 10))
-                        .foregroundStyle(iconColor)
+                    // Show thumbnail for pasted images
+                    if case .image(let data, _) = attachment,
+                       let nsImage = NSImage(data: data) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 24, height: 24)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    } else {
+                        Image(systemName: attachment.iconName)
+                            .font(.system(size: 10))
+                            .foregroundStyle(iconColor)
+                    }
 
                     Text(attachment.displayName)
                         .font(.system(size: 11, weight: .medium))
@@ -280,6 +379,8 @@ struct ChatAttachmentChip: View {
         switch attachment {
         case .file:
             return .secondary
+        case .image:
+            return .purple
         case .reviewComments:
             return .blue
         case .buildError:
@@ -291,6 +392,8 @@ struct ChatAttachmentChip: View {
         switch attachment {
         case .file:
             return Color(NSColor.controlBackgroundColor)
+        case .image:
+            return Color.purple.opacity(0.15)
         case .reviewComments:
             return Color.blue.opacity(0.15)
         case .buildError:
@@ -303,11 +406,69 @@ struct ChatAttachmentChip: View {
         switch attachment {
         case .file(let url):
             InputAttachmentDetailView(url: url)
+        case .image(let data, _):
+            ImageAttachmentDetailView(data: data)
         case .reviewComments(let content):
             ReviewCommentsDetailView(content: content)
         case .buildError(let content):
             BuildErrorDetailView(content: content)
         }
+    }
+}
+
+// MARK: - Image Attachment Detail View
+
+struct ImageAttachmentDetailView: View {
+    let data: Data
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pasted Image")
+                        .font(.headline)
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            .background(.ultraThinMaterial)
+
+            Divider()
+
+            ScrollView {
+                if let nsImage = NSImage(data: data) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("Unable to display image")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                }
+            }
+        }
+        .frame(width: 700, height: 500)
     }
 }
 
