@@ -47,21 +47,21 @@ extension ChatSessionViewModel {
         let hasStructuralChanges = !addedIds.isEmpty
 
         let updateBlock = { [self] in
-            // Update existing messages using O(1) index lookup
-            for newMsg in newMessages where previousMessageIds.contains(newMsg.id) {
-                if let idx = timelineIndex[newMsg.id] {
-                    timelineItems[idx] = .message(newMsg)
-                }
-            }
-
-            // Insert new messages
+            // 1. Insert new messages FIRST (changes structure/indices)
             for newMsg in newMessages where addedIds.contains(newMsg.id) {
                 insertTimelineItem(.message(newMsg))
             }
 
-            // Rebuild index if structure changed
+            // 2. Rebuild index IMMEDIATELY after structural changes
             if hasStructuralChanges {
                 rebuildTimelineIndex()
+            }
+
+            // 3. Update existing messages AFTER index is fresh
+            for newMsg in newMessages where previousMessageIds.contains(newMsg.id) {
+                if let idx = timelineIndex[newMsg.id], idx < timelineItems.count {
+                    timelineItems[idx] = .message(newMsg)
+                }
             }
         }
 
@@ -83,21 +83,21 @@ extension ChatSessionViewModel {
         let hasStructuralChanges = !addedIds.isEmpty
 
         let updateBlock = { [self] in
-            // Update existing tool calls using O(1) index lookup
-            for newCall in newToolCalls where previousToolCallIds.contains(newCall.id) {
-                if let idx = timelineIndex[newCall.id] {
-                    timelineItems[idx] = .toolCall(newCall)
-                }
-            }
-
-            // Insert new tool calls
+            // 1. Insert new tool calls FIRST (changes structure/indices)
             for newCall in newToolCalls where addedIds.contains(newCall.id) {
                 insertTimelineItem(.toolCall(newCall))
             }
 
-            // Rebuild index if structure changed
+            // 2. Rebuild index IMMEDIATELY after structural changes
             if hasStructuralChanges {
                 rebuildTimelineIndex()
+            }
+
+            // 3. Update existing tool calls AFTER index is fresh
+            for newCall in newToolCalls where previousToolCallIds.contains(newCall.id) {
+                if let idx = timelineIndex[newCall.id], idx < timelineItems.count {
+                    timelineItems[idx] = .toolCall(newCall)
+                }
             }
         }
 
