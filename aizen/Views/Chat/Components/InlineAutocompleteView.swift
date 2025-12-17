@@ -9,7 +9,7 @@ import SwiftUI
 
 struct InlineAutocompleteView: View {
     @ObservedObject var handler: UnifiedAutocompleteHandler
-    let onTap: (Int) -> Void
+    let onTap: (AutocompleteItem) -> Void
     let onSelect: () -> Void
 
     var body: some View {
@@ -24,8 +24,8 @@ struct InlineAutocompleteView: View {
                 AutocompleteListView(
                     items: handler.state.items,
                     selectedIndex: handler.state.selectedIndex,
-                    onTap: { index in
-                        onTap(index)
+                    onTap: { item in
+                        onTap(item)
                     }
                 )
             }
@@ -54,7 +54,7 @@ struct InlineAutocompleteView: View {
 private struct AutocompleteListView: View {
     let items: [AutocompleteItem]
     let selectedIndex: Int
-    let onTap: (Int) -> Void
+    let onTap: (AutocompleteItem) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -67,7 +67,7 @@ private struct AutocompleteListView: View {
                         )
                         .id(item.id)
                         .onTapGesture {
-                            onTap(index)
+                            onTap(item)
                         }
                     }
                 }

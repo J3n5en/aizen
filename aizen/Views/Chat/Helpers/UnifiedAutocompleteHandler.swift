@@ -242,6 +242,14 @@ class UnifiedAutocompleteHandler: ObservableObject {
         lastSearchedText = ""
     }
 
+    func selectItem(_ item: AutocompleteItem) {
+        guard state.isActive,
+              let index = state.items.firstIndex(where: { $0.id == item.id }) else {
+            return
+        }
+        state.selectedIndex = index
+    }
+
     // MARK: - Direct Update
 
     func updateCursorRect(_ rect: NSRect) {

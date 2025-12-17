@@ -278,8 +278,8 @@ struct ChatSessionView: View {
             if !window.hasContent {
                 let contentView = InlineAutocompleteView(
                     handler: viewModel.autocompleteHandler,
-                    onTap: { index in
-                        viewModel.autocompleteHandler.state.selectedIndex = index
+                    onTap: { item in
+                        viewModel.autocompleteHandler.selectItem(item)
                         viewModel.handleAutocompleteSelection()
                     },
                     onSelect: {

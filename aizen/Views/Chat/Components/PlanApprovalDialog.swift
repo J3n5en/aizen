@@ -94,7 +94,7 @@ struct PlanApprovalDialog: View {
             .padding(16)
             .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(width: 580, height: 480)
+        .frame(width: 900, height: 700)
         .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
