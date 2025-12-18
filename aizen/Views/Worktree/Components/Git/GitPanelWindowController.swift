@@ -153,11 +153,15 @@ struct GitPanelWindowContentWithToolbar: View {
             
 
             ToolbarItem(placement: .primaryAction) {
-                gitActionsToolbar
+                prActionButton
             }
 
             ToolbarItem(placement: .primaryAction) {
-                prActionButton
+                Spacer().frame(width: 16)
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                gitActionsToolbar
             }
         }
         .onAppear {
