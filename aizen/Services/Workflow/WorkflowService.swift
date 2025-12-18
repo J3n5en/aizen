@@ -153,6 +153,8 @@ class WorkflowService: ObservableObject {
             return
         }
 
+        // Clear workflow selection when selecting a run
+        selectedWorkflow = nil
         selectedRun = run
         selectedRunJobs = []
         runLogs = ""
