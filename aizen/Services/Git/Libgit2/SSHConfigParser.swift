@@ -2,7 +2,14 @@ import Foundation
 import Clibgit2
 
 /// Parses ~/.ssh/config to find the IdentityFile for a given host
-func findSSHKeyForHost(_ host: String) -> String? {
+struct SSHConfigResolution: Sendable {
+    let hostName: String?
+    let user: String?
+    let port: Int?
+    let identityFiles: [String]
+}
+
+func resolveSSHConfig(forHost host: String) -> SSHConfigResolution? {
     let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
     let configPath = "\(homeDir)/.ssh/config"
 
@@ -10,9 +17,31 @@ func findSSHKeyForHost(_ host: String) -> String? {
         return nil
     }
 
-    var currentHost: String?
-    var currentIdentityFile: String?
-    var wildcardIdentityFile: String?
+    struct Entry {
+        let patterns: [String]
+        var hostName: String?
+        var user: String?
+        var port: Int?
+        var identityFiles: [String]
+    }
+
+    var entries: [Entry] = []
+    var currentPatterns: [String] = []
+    var currentHostName: String?
+    var currentUser: String?
+    var currentPort: Int?
+    var currentIdentityFiles: [String] = []
+
+    func flushCurrentEntry() {
+        guard !currentPatterns.isEmpty else { return }
+        entries.append(Entry(
+            patterns: currentPatterns,
+            hostName: currentHostName,
+            user: currentUser,
+            port: currentPort,
+            identityFiles: currentIdentityFiles
+        ))
+    }
 
     for line in content.components(separatedBy: .newlines) {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -21,35 +50,71 @@ func findSSHKeyForHost(_ host: String) -> String? {
             continue
         }
 
-        if trimmed.lowercased().hasPrefix("host ") {
-            if let h = currentHost, let key = currentIdentityFile {
-                if matchesHost(host, pattern: h) {
-                    return expandPath(key)
-                }
-            }
+        let lower = trimmed.lowercased()
 
-            currentHost = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-            currentIdentityFile = nil
-        } else if trimmed.lowercased().hasPrefix("identityfile ") {
-            currentIdentityFile = String(trimmed.dropFirst(13)).trimmingCharacters(in: .whitespaces)
+        if lower.hasPrefix("host ") {
+            flushCurrentEntry()
 
-            if currentHost == "*" {
-                wildcardIdentityFile = currentIdentityFile
-            }
+            let remainder = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            currentPatterns = remainder.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            currentHostName = nil
+            currentUser = nil
+            currentPort = nil
+            currentIdentityFiles = []
+            continue
+        }
+
+        if lower.hasPrefix("hostname ") {
+            currentHostName = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+            continue
+        }
+
+        if lower.hasPrefix("user ") {
+            currentUser = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            continue
+        }
+
+        if lower.hasPrefix("port ") {
+            let value = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            currentPort = Int(value)
+            continue
+        }
+
+        if lower.hasPrefix("identityfile ") {
+            let value = String(trimmed.dropFirst(13)).trimmingCharacters(in: .whitespaces)
+            currentIdentityFiles.append(expandPath(value))
+            continue
         }
     }
 
-    if let h = currentHost, let key = currentIdentityFile {
-        if matchesHost(host, pattern: h) {
-            return expandPath(key)
-        }
+    flushCurrentEntry()
+
+    guard !entries.isEmpty else { return nil }
+
+    // Apply matching entries in order; later matches override earlier ones.
+    var resolvedHostName: String?
+    var resolvedUser: String?
+    var resolvedPort: Int?
+    var resolvedIdentityFiles: [String] = []
+
+    for entry in entries {
+        guard entry.patterns.contains(where: { matchesHost(host, pattern: $0) }) else { continue }
+        if let hn = entry.hostName { resolvedHostName = hn }
+        if let u = entry.user { resolvedUser = u }
+        if let p = entry.port { resolvedPort = p }
+        if !entry.identityFiles.isEmpty { resolvedIdentityFiles = entry.identityFiles }
     }
 
-    if let wildcard = wildcardIdentityFile {
-        return expandPath(wildcard)
-    }
+    return SSHConfigResolution(
+        hostName: resolvedHostName,
+        user: resolvedUser,
+        port: resolvedPort,
+        identityFiles: resolvedIdentityFiles
+    )
+}
 
-    return nil
+func findSSHKeyForHost(_ host: String) -> String? {
+    resolveSSHConfig(forHost: host)?.identityFiles.first
 }
 
 /// Check if host matches pattern (supports * wildcard)
@@ -84,10 +149,28 @@ func extractHostFromURL(_ urlString: String) -> String? {
             }
         }
     }
+
+    // SCP-like without username: host:path
+    if !urlString.contains("://"), let colonIndex = urlString.firstIndex(of: ":") {
+        let beforeColon = String(urlString[..<colonIndex])
+        if !beforeColon.isEmpty, !beforeColon.contains("/") {
+            if let atIndex = beforeColon.firstIndex(of: "@") {
+                let host = String(beforeColon[beforeColon.index(after: atIndex)...])
+                return host.isEmpty ? nil : host
+            }
+            return beforeColon
+        }
+    }
+
     if let url = URL(string: urlString) {
         return url.host
     }
     return nil
+}
+
+/// Payload for libgit2 SSH credential callback to preserve host alias for key selection
+struct SSHCredentialPayload {
+    let keyHost: UnsafeMutablePointer<CChar>?
 }
 
 /// SSH credential callback for libgit2 - reads SSH config for the correct key
@@ -98,10 +181,18 @@ let sshCredentialCallback: git_credential_acquire_cb = { (cred, url, username_fr
 
         var keysToTry: [String] = []
 
+        let hostForKeySelection: String? = {
+            guard let payload else { return nil }
+            let p = payload.assumingMemoryBound(to: SSHCredentialPayload.self).pointee
+            guard let keyHost = p.keyHost else { return nil }
+            return String(cString: keyHost)
+        }()
+
         if let urlStr = url.map({ String(cString: $0) }),
-           let host = extractHostFromURL(urlStr),
-           let configKey = findSSHKeyForHost(host) {
-            keysToTry.append(configKey)
+           let host = hostForKeySelection ?? extractHostFromURL(urlStr) {
+            if let resolved = resolveSSHConfig(forHost: host), !resolved.identityFiles.isEmpty {
+                keysToTry.append(contentsOf: resolved.identityFiles)
+            }
         }
 
         keysToTry.append(contentsOf: [

@@ -9,6 +9,19 @@ import Foundation
 
 actor GitRemoteService {
 
+    private func isSSHRemoteURL(_ url: String) -> Bool {
+        if url.hasPrefix("ssh://") { return true }
+        if url.contains("://") { return false }
+        // SCP-like: [user@]host:path
+        if let colon = url.firstIndex(of: ":") {
+            let before = url[..<colon]
+            if !before.isEmpty, !before.contains("/") {
+                return true
+            }
+        }
+        return false
+    }
+
     func fetch(at path: String) async throws {
         try await Task.detached {
             let repo = try Libgit2Repository(path: path)
@@ -40,6 +53,21 @@ actor GitRemoteService {
     }
 
     func clone(url: String, to path: String) async throws {
+        // Prefer git CLI for SSH clones to respect ~/.ssh/config host aliases and advanced ssh options.
+        if isSSHRemoteURL(url) {
+            let environment = ShellEnvironment.loadUserShellEnvironment()
+            let result = try await ProcessExecutor.shared.executeWithOutput(
+                executable: "/usr/bin/git",
+                arguments: ["clone", url, path],
+                environment: environment,
+                workingDirectory: nil
+            )
+            guard result.succeeded else {
+                throw Libgit2Error.networkError(result.stderr.isEmpty ? result.stdout : result.stderr)
+            }
+            return
+        }
+
         try await Task.detached {
             _ = try Libgit2Repository(cloneFrom: url, to: path)
         }.value
