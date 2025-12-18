@@ -191,6 +191,27 @@ actor GitLabWorkflowProvider: WorkflowProviderProtocol {
         }
     }
 
+    func getStructuredLogs(repoPath: String, runId: String, jobId: String, steps: [WorkflowStep]) async throws -> WorkflowLogs {
+        // GitLab doesn't have steps like GitHub, so just return the job trace as a single block
+        let result = try await executeGLab(["api", "projects/:id/jobs/\(jobId)/trace"], workingDirectory: repoPath)
+        let rawLogs = result.stdout
+
+        let lines = rawLogs.components(separatedBy: .newlines).map { line in
+            WorkflowLogLine(
+                stepName: "Job Output",
+                content: line
+            )
+        }
+
+        return WorkflowLogs(
+            runId: runId,
+            jobId: jobId,
+            lines: lines,
+            rawContent: rawLogs,
+            lastUpdated: Date()
+        )
+    }
+
     // MARK: - Auth
 
     func checkAuthentication() async -> Bool {

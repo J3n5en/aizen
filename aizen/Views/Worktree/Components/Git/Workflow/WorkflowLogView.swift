@@ -41,6 +41,7 @@ class LogTableView: NSTableView {
 
 struct WorkflowLogTableView: NSViewRepresentable {
     let logs: String
+    let structuredLogs: WorkflowLogs?
     let fontSize: CGFloat
     @Binding var showTimestamps: Bool
     var onCoordinatorReady: ((Coordinator) -> Void)?
@@ -77,14 +78,14 @@ struct WorkflowLogTableView: NSViewRepresentable {
         scrollView.documentView = tableView
 
         // Parse logs in background
-        context.coordinator.parseLogs(logs, fontSize: fontSize, showTimestamps: showTimestamps)
+        context.coordinator.parseLogs(logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: showTimestamps)
 
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         if context.coordinator.currentLogs != logs {
-            context.coordinator.parseLogs(logs, fontSize: fontSize, showTimestamps: showTimestamps)
+            context.coordinator.parseLogs(logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: showTimestamps)
         }
         if context.coordinator.showTimestamps != showTimestamps {
             context.coordinator.showTimestamps = showTimestamps
@@ -108,14 +109,19 @@ struct WorkflowLogTableView: NSViewRepresentable {
 
         private var parseTask: Task<Void, Never>?
 
-        func parseLogs(_ logs: String, fontSize: CGFloat, showTimestamps: Bool) {
+        func parseLogs(_ logs: String, structuredLogs: WorkflowLogs? = nil, fontSize: CGFloat, showTimestamps: Bool) {
             currentLogs = logs
             self.fontSize = fontSize
             self.showTimestamps = showTimestamps
 
             parseTask?.cancel()
             parseTask = Task.detached(priority: .userInitiated) { [weak self] in
-                let parsed = Self.parseLogSteps(logs, fontSize: fontSize)
+                let parsed: [LogStep]
+                if let structured = structuredLogs, !structured.lines.isEmpty {
+                    parsed = Self.parseStructuredLogs(structured, fontSize: fontSize)
+                } else {
+                    parsed = Self.parseLogSteps(logs, fontSize: fontSize)
+                }
 
                 await MainActor.run {
                     guard let self = self else { return }
@@ -124,6 +130,90 @@ struct WorkflowLogTableView: NSViewRepresentable {
                     self.tableView?.reloadData()
                 }
             }
+        }
+
+        private static func parseStructuredLogs(_ logs: WorkflowLogs, fontSize: CGFloat) -> [LogStep] {
+            var steps: [LogStep] = []
+            var currentStepName = ""
+            var currentGroup: LogGroup?
+            var groupId = 0
+            var lineId = 0
+            var stepId = 0
+            var currentStyle = ANSITextStyle()
+            var lastGroupTitle = ""
+
+            for logLine in logs.lines {
+                let stepName = logLine.stepName
+
+                // Handle step transitions
+                if stepName != currentStepName {
+                    // Save current group to previous step before transitioning
+                    if let group = currentGroup, !group.lines.isEmpty, !steps.isEmpty {
+                        steps[steps.count - 1].groups.append(group)
+                        currentGroup = nil
+                    }
+
+                    currentStepName = stepName
+                    steps.append(LogStep(id: stepId, name: stepName, groups: [], isExpanded: false))
+                    stepId += 1
+                }
+
+                let currentStepIdx = steps.isEmpty ? nil : steps.count - 1
+
+                // Check for group markers
+                if logLine.isGroupStart {
+                    // Save current group
+                    if let group = currentGroup, !group.lines.isEmpty, let stepIdx = currentStepIdx {
+                        steps[stepIdx].groups.append(group)
+                    }
+
+                    let title = logLine.groupName ?? "Output"
+
+                    // If this is "Output", merge with previous group instead of creating new one
+                    if title == "Output" && !lastGroupTitle.isEmpty {
+                        if let stepIdx = currentStepIdx, !steps[stepIdx].groups.isEmpty {
+                            let lastIdx = steps[stepIdx].groups.count - 1
+                            currentGroup = steps[stepIdx].groups[lastIdx]
+                            steps[stepIdx].groups.removeLast()
+                        } else {
+                            currentGroup = LogGroup(id: groupId, title: lastGroupTitle, lines: [], isExpanded: false)
+                            groupId += 1
+                        }
+                    } else {
+                        currentGroup = LogGroup(id: groupId, title: title, lines: [], isExpanded: false)
+                        lastGroupTitle = title
+                        groupId += 1
+                    }
+                } else if logLine.isGroupEnd {
+                    if let group = currentGroup, let stepIdx = currentStepIdx {
+                        steps[stepIdx].groups.append(group)
+                        currentGroup = nil
+                    }
+                } else if !logLine.content.trimmingCharacters(in: .whitespaces).isEmpty {
+                    let (attributed, newStyle) = parseLineToAttributedString(logLine.content, style: currentStyle, fontSize: fontSize)
+                    currentStyle = newStyle
+
+                    if currentGroup != nil {
+                        currentGroup?.lines.append((id: lineId, raw: logLine.content, attributed: attributed))
+                    } else if let stepIdx = currentStepIdx {
+                        if steps[stepIdx].groups.isEmpty || !steps[stepIdx].groups.last!.title.isEmpty {
+                            currentGroup = LogGroup(id: groupId, title: "", lines: [], isExpanded: true)
+                            groupId += 1
+                        } else {
+                            currentGroup = steps[stepIdx].groups.removeLast()
+                        }
+                        currentGroup?.lines.append((id: lineId, raw: logLine.content, attributed: attributed))
+                    }
+                    lineId += 1
+                }
+            }
+
+            // Save final group
+            if let group = currentGroup, !group.lines.isEmpty, !steps.isEmpty {
+                steps[steps.count - 1].groups.append(group)
+            }
+
+            return steps.filter { !$0.groups.isEmpty || $0.groups.contains { !$0.lines.isEmpty } }
         }
 
         private static func parseLogSteps(_ text: String, fontSize: CGFloat) -> [LogStep] {
@@ -579,17 +669,19 @@ struct WorkflowLogTableView: NSViewRepresentable {
 
 struct WorkflowLogView: View {
     let logs: String
+    let structuredLogs: WorkflowLogs?
     let fontSize: CGFloat
 
     @State private var showTimestamps: Bool = false
 
-    init(_ logs: String, fontSize: CGFloat = 11, showStepNavigation: Bool = true) {
+    init(_ logs: String, structuredLogs: WorkflowLogs? = nil, fontSize: CGFloat = 11, showStepNavigation: Bool = true) {
         self.logs = logs
+        self.structuredLogs = structuredLogs
         self.fontSize = fontSize
     }
 
     var body: some View {
-        WorkflowLogTableView(logs: logs, fontSize: fontSize, showTimestamps: $showTimestamps, onCoordinatorReady: nil)
+        WorkflowLogTableView(logs: logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: $showTimestamps, onCoordinatorReady: nil)
             .background(Color(nsColor: .textBackgroundColor))
     }
 }

@@ -24,6 +24,7 @@ class WorkflowService: ObservableObject {
     @Published var selectedRun: WorkflowRun?
     @Published var selectedRunJobs: [WorkflowJob] = []
     @Published var runLogs: String = ""
+    @Published var structuredLogs: WorkflowLogs?
     @Published var isLoadingLogs: Bool = false
 
     private var currentLogJobId: String?
@@ -191,8 +192,15 @@ class WorkflowService: ObservableObject {
         selectedRun = nil
         selectedRunJobs = []
         runLogs = ""
+        structuredLogs = nil
         currentLogJobId = nil
         stopLogPolling()
+    }
+
+    /// Load structured logs for a specific job
+    func loadJobLogs(_ job: WorkflowJob) async {
+        guard let run = selectedRun else { return }
+        await loadLogs(runId: run.id, jobId: job.id)
     }
 
     // MARK: - Actions
@@ -278,13 +286,31 @@ class WorkflowService: ObservableObject {
 
         isLoadingLogs = true
         currentLogJobId = jobId
+        structuredLogs = nil
 
         // Capture values for background task
         let provider = currentProvider
         let path = repoPath
+        let jobs = selectedRunJobs
 
         do {
-            // Run on background thread to avoid blocking UI
+            // Try to get structured logs if we have a job ID and steps
+            if let jobId = jobId,
+               let job = jobs.first(where: { $0.id == jobId }),
+               !job.steps.isEmpty {
+                let structured = try await Task.detached {
+                    try await provider?.getStructuredLogs(repoPath: path, runId: runId, jobId: jobId, steps: job.steps)
+                }.value
+
+                if let structured = structured {
+                    structuredLogs = structured
+                    runLogs = structured.rawContent
+                    isLoadingLogs = false
+                    return
+                }
+            }
+
+            // Fall back to plain text logs
             let logs = try await Task.detached {
                 try await provider?.getRunLogs(repoPath: path, runId: runId, jobId: jobId) ?? ""
             }.value

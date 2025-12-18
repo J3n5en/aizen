@@ -250,7 +250,7 @@ struct WorkflowRunDetailView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
-                WorkflowLogView(service.runLogs, fontSize: 11, showStepNavigation: true)
+                WorkflowLogView(service.runLogs, structuredLogs: service.structuredLogs, fontSize: 11, showStepNavigation: true)
             }
         }
     }

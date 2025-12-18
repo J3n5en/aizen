@@ -25,6 +25,7 @@ protocol WorkflowProviderProtocol {
 
     // Logs
     func getRunLogs(repoPath: String, runId: String, jobId: String?) async throws -> String
+    func getStructuredLogs(repoPath: String, runId: String, jobId: String, steps: [WorkflowStep]) async throws -> WorkflowLogs
 
     // Auth
     func checkAuthentication() async -> Bool

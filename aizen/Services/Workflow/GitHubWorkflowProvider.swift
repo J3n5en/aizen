@@ -185,6 +185,114 @@ actor GitHubWorkflowProvider: WorkflowProviderProtocol {
         return result.stdout
     }
 
+    func getStructuredLogs(repoPath: String, runId: String, jobId: String, steps: [WorkflowStep]) async throws -> WorkflowLogs {
+        // Use gh api to get raw logs for the job
+        let result = try await executeGH(["api", "repos/{owner}/{repo}/actions/jobs/\(jobId)/logs"], workingDirectory: repoPath)
+        let rawLogs = result.stdout
+
+        // Sort steps by start time (descending) for proper matching
+        let sortedSteps = steps.sorted { step1, step2 in
+            guard let start1 = step1.startedAt, let start2 = step2.startedAt else {
+                return step1.number > step2.number
+            }
+            return start1 > start2
+        }
+
+        // Parse log lines and correlate with steps
+        var logLines: [WorkflowLogLine] = []
+        let lines = rawLogs.components(separatedBy: .newlines)
+
+        for line in lines {
+            guard !line.isEmpty else { continue }
+
+            // Parse timestamp from line (format: 2025-12-17T07:30:39.5778140Z ...)
+            let timestampPattern = #"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"#
+            let timestampRegex = try? NSRegularExpression(pattern: timestampPattern)
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+
+            var timestamp: Date?
+            var content = line
+
+            if let match = timestampRegex?.firstMatch(in: line, range: range),
+               let timestampRange = Range(match.range(at: 1), in: line) {
+                let timestampStr = String(line[timestampRange])
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                timestamp = formatter.date(from: timestampStr + "Z")
+
+                // Remove timestamp from content
+                if let fullRange = Range(match.range, in: line) {
+                    content = String(line[fullRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    // Also remove the microseconds part if present
+                    if content.hasPrefix(".") {
+                        if let spaceIndex = content.firstIndex(of: " ") {
+                            content = String(content[content.index(after: spaceIndex)...])
+                        }
+                    }
+                }
+            }
+
+            // Remove timestamp suffix (e.g., ".5778140Z ")
+            let cleanPattern = #"^\.\d+Z\s*"#
+            if let cleanRegex = try? NSRegularExpression(pattern: cleanPattern) {
+                let cleanRange = NSRange(content.startIndex..<content.endIndex, in: content)
+                content = cleanRegex.stringByReplacingMatches(in: content, range: cleanRange, withTemplate: "")
+            }
+
+            // Find matching step by timestamp (checking newest first)
+            var stepName = "Setup"
+            var stepNumber: Int?
+
+            if let ts = timestamp {
+                for step in sortedSteps {
+                    if let stepStart = step.startedAt, ts >= stepStart {
+                        stepName = step.name
+                        stepNumber = step.number
+                        break
+                    }
+                }
+            }
+
+            // Check for error markers
+            let isError = content.contains("##[error]")
+
+            // Check for group markers
+            let isGroupStart = content.contains("##[group]")
+            let isGroupEnd = content.contains("##[endgroup]")
+            var groupName: String?
+
+            if isGroupStart {
+                groupName = content.replacingOccurrences(of: "##[group]", with: "")
+            }
+
+            // Clean up GitHub Actions markers
+            content = content
+                .replacingOccurrences(of: "##[error]", with: "")
+                .replacingOccurrences(of: "##[warning]", with: "")
+                .replacingOccurrences(of: "##[group]", with: "")
+                .replacingOccurrences(of: "##[endgroup]", with: "")
+
+            logLines.append(WorkflowLogLine(
+                stepName: stepName,
+                stepNumber: stepNumber,
+                content: content,
+                timestamp: timestamp,
+                isError: isError,
+                isGroupStart: isGroupStart,
+                isGroupEnd: isGroupEnd,
+                groupName: groupName
+            ))
+        }
+
+        return WorkflowLogs(
+            runId: runId,
+            jobId: jobId,
+            lines: logLines,
+            rawContent: rawLogs,
+            lastUpdated: Date()
+        )
+    }
+
     // MARK: - Auth
 
     func checkAuthentication() async -> Bool {
