@@ -184,6 +184,7 @@ struct CommandPaletteContent: View {
     @State private var displayedWorktrees: [Worktree] = []
     @FocusState private var isSearchFocused: Bool
     @EnvironmentObject private var interaction: PaletteInteractionState
+    @State private var hoveredIndex: Int?
 
     private func refreshDisplayedWorktrees() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -285,7 +286,12 @@ struct CommandPaletteContent: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(displayedWorktrees.enumerated()), id: \.element.objectID) { index, worktree in
-                        worktreeRow(worktree: worktree, index: index, isSelected: index == selectedIndex)
+                        worktreeRow(
+                            worktree: worktree,
+                            index: index,
+                            isSelected: index == selectedIndex,
+                            isHovered: hoveredIndex == index
+                        )
                             .id(index)
                     }
                 }
@@ -302,7 +308,7 @@ struct CommandPaletteContent: View {
         }
     }
 
-    private func worktreeRow(worktree: Worktree, index: Int, isSelected: Bool) -> some View {
+    private func worktreeRow(worktree: Worktree, index: Int, isSelected: Bool, isHovered: Bool) -> some View {
         HStack(spacing: 14) {
             Image(systemName: worktree.isPrimary ? "arrow.triangle.branch" : "arrow.triangle.2.circlepath")
                 .foregroundStyle(isSelected ? .primary : .secondary)
@@ -350,7 +356,10 @@ struct CommandPaletteContent: View {
         .padding(.vertical, 11)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+                .fill(
+                    isSelected ? Color.white.opacity(0.12) :
+                        (isHovered ? Color.white.opacity(0.06) : Color.clear)
+                )
                 .overlay {
                     if isSelected {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -363,10 +372,8 @@ struct CommandPaletteContent: View {
             selectWorktree(worktree)
         }
         .onHover { hovering in
-            if hovering {
-                guard interaction.allowHoverSelection else { return }
-                selectedIndex = index
-            }
+            guard interaction.allowHoverSelection else { return }
+            hoveredIndex = hovering ? index : nil
         }
     }
 

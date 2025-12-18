@@ -184,6 +184,7 @@ struct FileSearchWindowContent: View {
     @StateObject private var viewModel: FileSearchViewModel
     @FocusState private var isSearchFocused: Bool
     @EnvironmentObject private var interaction: PaletteInteractionState
+    @State private var hoveredIndex: Int?
 
     init(worktreePath: String, onFileSelected: @escaping (String) -> Void, onClose: @escaping () -> Void) {
         self.worktreePath = worktreePath
@@ -304,7 +305,12 @@ struct FileSearchWindowContent: View {
                 LazyVStack(spacing: 0) {
                     ForEach(viewModel.results.indices, id: \.self) { index in
                         let result = viewModel.results[index]
-                        resultRow(result: result, index: index, isSelected: index == viewModel.selectedIndex)
+                        resultRow(
+                            result: result,
+                            index: index,
+                            isSelected: index == viewModel.selectedIndex,
+                            isHovered: hoveredIndex == index
+                        )
                             .id(index)
                     }
                 }
@@ -322,7 +328,12 @@ struct FileSearchWindowContent: View {
         }
     }
 
-    private func resultRow(result: FileSearchResult, index: Int, isSelected: Bool) -> some View {
+    private func resultRow(
+        result: FileSearchResult,
+        index: Int,
+        isSelected: Bool,
+        isHovered: Bool
+    ) -> some View {
         HStack(spacing: 14) {
             FileIconView(path: result.path, size: 20)
                 .frame(width: 20, height: 20)
@@ -353,7 +364,10 @@ struct FileSearchWindowContent: View {
         .padding(.vertical, 11)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+                .fill(
+                    isSelected ? Color.white.opacity(0.12) :
+                        (isHovered ? Color.white.opacity(0.06) : Color.clear)
+                )
                 .overlay {
                     if isSelected {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -366,10 +380,8 @@ struct FileSearchWindowContent: View {
             selectFile(result)
         }
         .onHover { hovering in
-            if hovering {
-                guard interaction.allowHoverSelection else { return }
-                viewModel.selectedIndex = index
-            }
+            guard interaction.allowHoverSelection else { return }
+            hoveredIndex = hovering ? index : nil
         }
     }
 
