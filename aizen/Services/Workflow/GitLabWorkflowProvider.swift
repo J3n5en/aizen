@@ -39,7 +39,8 @@ actor GitLabWorkflowProvider: WorkflowProviderProtocol {
                     name: "GitLab CI",
                     path: ".gitlab-ci.yml",
                     state: .active,
-                    provider: .gitlab
+                    provider: .gitlab,
+                    supportsManualTrigger: true  // GitLab pipelines can always be triggered manually
                 )
             ]
         }
@@ -174,6 +175,10 @@ actor GitLabWorkflowProvider: WorkflowProviderProtocol {
         if let jobId = jobId {
             // Get specific job trace
             let result = try await executeGLab(["api", "projects/:id/jobs/\(jobId)/trace"], workingDirectory: repoPath)
+            logger.debug("GitLab trace stdout length: \(result.stdout.count), stderr: \(result.stderr)")
+            if result.stdout.isEmpty && !result.stderr.isEmpty {
+                return "Error fetching logs: \(result.stderr)"
+            }
             return result.stdout
         } else {
             // Get all job logs for the pipeline
@@ -282,6 +287,7 @@ actor GitLabWorkflowProvider: WorkflowProviderProtocol {
     }
 
     private func parseGitLabVariables(yaml: String) -> [WorkflowInput] {
+        var seenNames: Set<String> = []
         var inputs: [WorkflowInput] = []
         let lines = yaml.components(separatedBy: .newlines)
 
@@ -312,9 +318,11 @@ actor GitLabWorkflowProvider: WorkflowProviderProtocol {
                         let name = String(parts[0]).trimmingCharacters(in: .whitespaces)
                         let defaultValue = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces).trimmingCharacters(in: .init(charactersIn: "'\"")) : nil
 
-                        // Skip GitLab predefined variables
+                        // Skip GitLab predefined variables and duplicates
                         guard !name.hasPrefix("CI_"), !name.hasPrefix("GITLAB_") else { continue }
+                        guard !seenNames.contains(name) else { continue }
 
+                        seenNames.insert(name)
                         inputs.append(WorkflowInput(
                             id: name,
                             description: "",

@@ -35,15 +35,32 @@ actor GitHubWorkflowProvider: WorkflowProviderProtocol {
         }
 
         let items = try parseJSON(data, as: [GitHubWorkflowResponse].self)
-        return items.map { item in
-            Workflow(
+        var workflows: [Workflow] = []
+
+        for item in items {
+            // Check if workflow supports manual trigger by reading the YAML
+            let supportsManualTrigger = checkWorkflowDispatch(repoPath: repoPath, workflowPath: item.path)
+
+            workflows.append(Workflow(
                 id: String(item.id),
                 name: item.name,
                 path: item.path,
                 state: item.state == "active" ? .active : .disabled,
-                provider: .github
-            )
+                provider: .github,
+                supportsManualTrigger: supportsManualTrigger
+            ))
         }
+
+        return workflows
+    }
+
+    private func checkWorkflowDispatch(repoPath: String, workflowPath: String) -> Bool {
+        let fullPath = (repoPath as NSString).appendingPathComponent(workflowPath)
+        guard let content = try? String(contentsOfFile: fullPath, encoding: .utf8) else {
+            return false
+        }
+        // Check for workflow_dispatch in the on: section
+        return content.contains("workflow_dispatch")
     }
 
     func getWorkflowInputs(repoPath: String, workflow: Workflow) async throws -> [WorkflowInput] {

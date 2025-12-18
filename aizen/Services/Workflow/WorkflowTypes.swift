@@ -39,9 +39,10 @@ struct Workflow: Identifiable, Hashable {
     let path: String  // .github/workflows/ci.yml or .gitlab-ci.yml
     let state: WorkflowState
     let provider: WorkflowProvider
+    let supportsManualTrigger: Bool
 
     var canTrigger: Bool {
-        state == .active
+        state == .active && supportsManualTrigger
     }
 }
 

@@ -43,6 +43,7 @@ struct WorkflowLogTableView: NSViewRepresentable {
     let logs: String
     let structuredLogs: WorkflowLogs?
     let fontSize: CGFloat
+    let provider: WorkflowProvider
     @Binding var showTimestamps: Bool
     var onCoordinatorReady: ((Coordinator) -> Void)?
 
@@ -50,7 +51,7 @@ struct WorkflowLogTableView: NSViewRepresentable {
         onCoordinatorReady?(context.coordinator)
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
+        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
 
@@ -59,33 +60,38 @@ struct WorkflowLogTableView: NSViewRepresentable {
         context.coordinator.tableView = tableView
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("LogColumn"))
-        column.width = 10000
         column.minWidth = 100
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
 
+        // Make column fill available width
+        tableView.sizeLastColumnToFit()
+
         tableView.headerView = nil
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
-        tableView.rowHeight = 18
-        tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.intercellSpacing = NSSize(width: 0, height: 2)
         tableView.backgroundColor = NSColor.textBackgroundColor
         tableView.usesAlternatingRowBackgroundColors = false
         tableView.allowsMultipleSelection = true
         tableView.style = .plain
         tableView.gridStyleMask = []
+        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+
+        // Observe frame changes to recalculate row heights
+        context.coordinator.observeFrameChanges(tableView)
 
         scrollView.documentView = tableView
 
         // Parse logs in background
-        context.coordinator.parseLogs(logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: showTimestamps)
+        context.coordinator.parseLogs(logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: showTimestamps, provider: provider)
 
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         if context.coordinator.currentLogs != logs {
-            context.coordinator.parseLogs(logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: showTimestamps)
+            context.coordinator.parseLogs(logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: showTimestamps, provider: provider)
         }
         if context.coordinator.showTimestamps != showTimestamps {
             context.coordinator.showTimestamps = showTimestamps
@@ -109,7 +115,7 @@ struct WorkflowLogTableView: NSViewRepresentable {
 
         private var parseTask: Task<Void, Never>?
 
-        func parseLogs(_ logs: String, structuredLogs: WorkflowLogs? = nil, fontSize: CGFloat, showTimestamps: Bool) {
+        func parseLogs(_ logs: String, structuredLogs: WorkflowLogs? = nil, fontSize: CGFloat, showTimestamps: Bool, provider: WorkflowProvider = .github) {
             currentLogs = logs
             self.fontSize = fontSize
             self.showTimestamps = showTimestamps
@@ -120,7 +126,7 @@ struct WorkflowLogTableView: NSViewRepresentable {
                 if let structured = structuredLogs, !structured.lines.isEmpty {
                     parsed = Self.parseStructuredLogs(structured, fontSize: fontSize)
                 } else {
-                    parsed = Self.parseLogSteps(logs, fontSize: fontSize)
+                    parsed = Self.parseLogSteps(logs, fontSize: fontSize, provider: provider)
                 }
 
                 await MainActor.run {
@@ -128,8 +134,18 @@ struct WorkflowLogTableView: NSViewRepresentable {
                     self.steps = parsed
                     self.rebuildDisplayRows()
                     self.tableView?.reloadData()
+
+                    // Recalculate heights after layout settles
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        self?.recalculateAllHeights()
+                    }
                 }
             }
+        }
+
+        private func recalculateAllHeights() {
+            guard let tableView = tableView, displayRows.count > 0 else { return }
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<displayRows.count))
         }
 
         private static func parseStructuredLogs(_ logs: WorkflowLogs, fontSize: CGFloat) -> [LogStep] {
@@ -216,7 +232,7 @@ struct WorkflowLogTableView: NSViewRepresentable {
             return steps.filter { !$0.groups.isEmpty || $0.groups.contains { !$0.lines.isEmpty } }
         }
 
-        private static func parseLogSteps(_ text: String, fontSize: CGFloat) -> [LogStep] {
+        private static func parseLogSteps(_ text: String, fontSize: CGFloat, provider: WorkflowProvider = .github) -> [LogStep] {
             let lines = text.components(separatedBy: "\n")
             var steps: [LogStep] = []
             var stepNameCounts: [String: Int] = [:] // track occurrences of each step name
@@ -228,6 +244,12 @@ struct WorkflowLogTableView: NSViewRepresentable {
             var currentStyle = ANSITextStyle()
             var lastGroupTitle = ""
 
+            // For GitLab (plain text logs), parse section markers into collapsible groups
+            if provider == .gitlab {
+                return parseGitLabLogs(lines, fontSize: fontSize)
+            }
+
+            // GitHub Actions format parsing
             for line in lines {
                 // Extract step name from log line format
                 let (extractedStep, message) = extractStepAndMessage(line)
@@ -318,6 +340,105 @@ struct WorkflowLogTableView: NSViewRepresentable {
 
             // Filter out empty steps
             return steps.filter { !$0.groups.isEmpty || $0.groups.contains { !$0.lines.isEmpty } }
+        }
+
+        private static func parseGitLabLogs(_ lines: [String], fontSize: CGFloat) -> [LogStep] {
+            var groups: [LogGroup] = []
+            var currentGroup: LogGroup?
+            var ungroupedLines: [(id: Int, raw: String, attributed: NSAttributedString)] = []
+            var groupId = 0
+            var lineId = 0
+            var currentStyle = ANSITextStyle()
+
+            // Section name to display name mapping
+            let sectionNames: [String: String] = [
+                "prepare_executor": "Prepare Executor",
+                "prepare_script": "Prepare Environment",
+                "get_sources": "Get Sources",
+                "step_script": "Execute Script",
+                "after_script": "After Script",
+                "cleanup_file_variables": "Cleanup",
+                "archive_cache": "Archive Cache",
+                "upload_artifacts": "Upload Artifacts",
+                "download_artifacts": "Download Artifacts"
+            ]
+
+            // Regex to clean non-color ANSI codes (cursor movement, clear line, etc.)
+            let controlCodePattern = try? NSRegularExpression(pattern: #"\x1B\[[0-9;]*[KJHfsu]|\[0K"#, options: [])
+
+            for line in lines {
+                // Clean ANSI control codes (keep color codes for the ANSI parser)
+                var cleanLine = line.replacingOccurrences(of: "\r", with: "")
+                if let regex = controlCodePattern {
+                    cleanLine = regex.stringByReplacingMatches(in: cleanLine, options: [], range: NSRange(cleanLine.startIndex..., in: cleanLine), withTemplate: "")
+                }
+
+                let trimmed = cleanLine.trimmingCharacters(in: .whitespaces)
+
+                // Check for section_start marker
+                if trimmed.hasPrefix("section_start:") {
+                    // Save ungrouped lines first
+                    if !ungroupedLines.isEmpty {
+                        let group = LogGroup(id: groupId, title: "", lines: ungroupedLines, isExpanded: true)
+                        groups.append(group)
+                        groupId += 1
+                        ungroupedLines = []
+                    }
+
+                    // Save current group if exists
+                    if let group = currentGroup, !group.lines.isEmpty {
+                        groups.append(group)
+                    }
+
+                    // Parse section name: section_start:timestamp:name
+                    let parts = trimmed.split(separator: ":")
+                    let sectionName = parts.count >= 3 ? String(parts[2]) : "Section"
+                    let displayName = sectionNames[sectionName] ?? sectionName.replacingOccurrences(of: "_", with: " ").capitalized
+
+                    currentGroup = LogGroup(id: groupId, title: displayName, lines: [], isExpanded: false)
+                    groupId += 1
+                    continue
+                }
+
+                // Check for section_end marker
+                if trimmed.hasPrefix("section_end:") {
+                    if let group = currentGroup {
+                        groups.append(group)
+                        currentGroup = nil
+                    }
+                    continue
+                }
+
+                // Skip empty lines
+                guard !trimmed.isEmpty else { continue }
+
+                // Parse line with ANSI colors
+                let (attributed, newStyle) = parseLineToAttributedString(cleanLine, style: currentStyle, fontSize: fontSize)
+                currentStyle = newStyle
+
+                if currentGroup != nil {
+                    currentGroup?.lines.append((id: lineId, raw: cleanLine, attributed: attributed))
+                } else {
+                    ungroupedLines.append((id: lineId, raw: cleanLine, attributed: attributed))
+                }
+                lineId += 1
+            }
+
+            // Save remaining content
+            if let group = currentGroup, !group.lines.isEmpty {
+                groups.append(group)
+            }
+            if !ungroupedLines.isEmpty {
+                let group = LogGroup(id: groupId, title: "", lines: ungroupedLines, isExpanded: true)
+                groups.append(group)
+            }
+
+            if groups.isEmpty {
+                return []
+            }
+
+            // Return as a single step containing all groups
+            return [LogStep(id: 0, name: "Job Output", groups: groups, isExpanded: true)]
         }
 
         private static func extractStepAndMessage(_ line: String) -> (step: String, message: String) {
@@ -562,6 +683,66 @@ struct WorkflowLogTableView: NSViewRepresentable {
             NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
         }
 
+        private var frameObserver: NSObjectProtocol?
+        private var columnObserver: NSObjectProtocol?
+        private var lastTableWidth: CGFloat = 0
+
+        func observeFrameChanges(_ tableView: NSTableView) {
+            lastTableWidth = tableView.bounds.width
+            tableView.postsFrameChangedNotifications = true
+
+            // Observe the enclosing scroll view's clip view for more reliable width change detection
+            if let clipView = tableView.enclosingScrollView?.contentView {
+                clipView.postsBoundsChangedNotifications = true
+                frameObserver = NotificationCenter.default.addObserver(
+                    forName: NSView.boundsDidChangeNotification,
+                    object: clipView,
+                    queue: .main
+                ) { [weak self, weak tableView] _ in
+                    self?.handleWidthChange(tableView)
+                }
+            } else {
+                frameObserver = NotificationCenter.default.addObserver(
+                    forName: NSView.frameDidChangeNotification,
+                    object: tableView,
+                    queue: .main
+                ) { [weak self, weak tableView] _ in
+                    self?.handleWidthChange(tableView)
+                }
+            }
+
+            // Also observe column resize
+            columnObserver = NotificationCenter.default.addObserver(
+                forName: NSTableView.columnDidResizeNotification,
+                object: tableView,
+                queue: .main
+            ) { [weak self, weak tableView] _ in
+                self?.handleWidthChange(tableView)
+            }
+        }
+
+        private func handleWidthChange(_ tableView: NSTableView?) {
+            guard let tableView = tableView else { return }
+            let newWidth = tableView.tableColumns.first?.width ?? tableView.bounds.width
+            // Only recalculate if width changed significantly
+            if abs(newWidth - lastTableWidth) > 5 {
+                lastTableWidth = newWidth
+                let rowCount = displayRows.count
+                if rowCount > 0 {
+                    tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rowCount))
+                }
+            }
+        }
+
+        deinit {
+            if let observer = frameObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = columnObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
         func getSelectedContent() -> String {
             guard let tableView = tableView else { return "" }
             var lines: [String] = []
@@ -601,11 +782,28 @@ struct WorkflowLogTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            guard row < displayRows.count else { return 18 }
+            guard row < displayRows.count else { return 20 }
             switch displayRows[row] {
             case .stepHeader: return 28
             case .groupHeader: return 22
-            case .logLine: return 18
+            case .logLine(_, _, let attributed):
+                // Use column width for accurate calculation
+                let columnWidth = tableView.tableColumns.first?.width ?? tableView.bounds.width
+                let textWidth = max(columnWidth - 20, 100) // 12 leading + 8 trailing
+
+                // Use text storage for accurate height calculation
+                let textStorage = NSTextStorage(attributedString: attributed)
+                let textContainer = NSTextContainer(size: NSSize(width: textWidth, height: .greatestFiniteMagnitude))
+                let layoutManager = NSLayoutManager()
+
+                textContainer.lineFragmentPadding = 0
+                layoutManager.addTextContainer(textContainer)
+                textStorage.addLayoutManager(layoutManager)
+
+                layoutManager.ensureLayout(for: textContainer)
+                let textHeight = layoutManager.usedRect(for: textContainer).height
+
+                return max(ceil(textHeight) + 4, 16)
             }
         }
 
@@ -671,17 +869,19 @@ struct WorkflowLogView: View {
     let logs: String
     let structuredLogs: WorkflowLogs?
     let fontSize: CGFloat
+    let provider: WorkflowProvider
 
     @State private var showTimestamps: Bool = false
 
-    init(_ logs: String, structuredLogs: WorkflowLogs? = nil, fontSize: CGFloat = 11, showStepNavigation: Bool = true) {
+    init(_ logs: String, structuredLogs: WorkflowLogs? = nil, fontSize: CGFloat = 11, provider: WorkflowProvider = .github) {
         self.logs = logs
         self.structuredLogs = structuredLogs
         self.fontSize = fontSize
+        self.provider = provider
     }
 
     var body: some View {
-        WorkflowLogTableView(logs: logs, structuredLogs: structuredLogs, fontSize: fontSize, showTimestamps: $showTimestamps, onCoordinatorReady: nil)
+        WorkflowLogTableView(logs: logs, structuredLogs: structuredLogs, fontSize: fontSize, provider: provider, showTimestamps: $showTimestamps, onCoordinatorReady: nil)
             .background(Color(nsColor: .textBackgroundColor))
     }
 }

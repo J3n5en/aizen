@@ -342,27 +342,31 @@ class WorkflowService: ObservableObject {
         structuredLogs = nil
 
         // Capture values for background task
-        let provider = currentProvider
+        let providerImpl = currentProvider
+        let providerType = self.provider
         let path = repoPath
         let jobs = selectedRunJobs
 
-        // Check if job/run is still in progress (logs only available after completion)
-        if let jobId = jobId, let job = jobs.first(where: { $0.id == jobId }) {
-            if job.status == .queued || job.status == .waiting || job.status == .pending {
-                runLogs = "Waiting for job to start...\n\nLogs will be available when the job completes."
+        // Check if job/run is still in progress (GitHub logs only available after completion)
+        // GitLab provides streaming logs, so skip this check for GitLab
+        if providerType == .github {
+            if let jobId = jobId, let job = jobs.first(where: { $0.id == jobId }) {
+                if job.status == .queued || job.status == .waiting || job.status == .pending {
+                    runLogs = "Waiting for job to start...\n\nLogs will be available when the job completes."
+                    isLoadingLogs = false
+                    return
+                }
+                if job.status == .inProgress || job.conclusion == nil {
+                    runLogs = "Job is running...\n\nLogs will be available when the job completes."
+                    isLoadingLogs = false
+                    return
+                }
+            } else if selectedRun?.isInProgress == true {
+                // No job found but run is in progress
+                runLogs = "Workflow is running...\n\nLogs will be available when jobs complete."
                 isLoadingLogs = false
                 return
             }
-            if job.status == .inProgress || job.conclusion == nil {
-                runLogs = "Job is running...\n\nLogs will be available when the job completes."
-                isLoadingLogs = false
-                return
-            }
-        } else if selectedRun?.isInProgress == true {
-            // No job found but run is in progress
-            runLogs = "Workflow is running...\n\nLogs will be available when jobs complete."
-            isLoadingLogs = false
-            return
         }
 
         do {
@@ -371,7 +375,7 @@ class WorkflowService: ObservableObject {
                let job = jobs.first(where: { $0.id == jobId }),
                !job.steps.isEmpty {
                 let structured = try await Task.detached {
-                    try await provider?.getStructuredLogs(repoPath: path, runId: runId, jobId: jobId, steps: job.steps)
+                    try await providerImpl?.getStructuredLogs(repoPath: path, runId: runId, jobId: jobId, steps: job.steps)
                 }.value
 
                 if let structured = structured {
@@ -384,12 +388,13 @@ class WorkflowService: ObservableObject {
 
             // Fall back to plain text logs
             let logs = try await Task.detached {
-                try await provider?.getRunLogs(repoPath: path, runId: runId, jobId: jobId) ?? ""
+                try await providerImpl?.getRunLogs(repoPath: path, runId: runId, jobId: jobId) ?? ""
             }.value
-            runLogs = logs
+            logger.debug("Loaded plain text logs, length: \(logs.count)")
+            runLogs = logs.isEmpty ? "No logs available for this job." : logs
         } catch {
             logger.error("Failed to load logs: \(error.localizedDescription)")
-            runLogs = "Failed to load logs."
+            runLogs = "Failed to load logs: \(error.localizedDescription)"
         }
 
         isLoadingLogs = false
@@ -400,43 +405,47 @@ class WorkflowService: ObservableObject {
         await loadLogs(runId: run.id)
     }
 
-    /// Load logs during polling - only fetches for completed jobs
+    /// Load logs during polling - only fetches for completed jobs (GitHub) or any status (GitLab)
     private func loadLogsForPolling(runId: String, jobId: String) async {
         // Capture values for background task
-        let provider = currentProvider
+        let providerImpl = currentProvider
+        let providerType = self.provider
         let path = repoPath
         let jobs = selectedRunJobs
         let currentContent = runLogs
 
-        // Check job status - logs only available after completion
-        if let job = jobs.first(where: { $0.id == jobId }) {
-            if job.status == .queued || job.status == .waiting || job.status == .pending {
-                if !runLogs.contains("Waiting for job") {
-                    runLogs = "Waiting for job to start...\n\nLogs will be available when the job completes."
+        // Check job status - GitHub logs only available after completion
+        // GitLab provides streaming logs, so skip this check for GitLab
+        if providerType == .github {
+            if let job = jobs.first(where: { $0.id == jobId }) {
+                if job.status == .queued || job.status == .waiting || job.status == .pending {
+                    if !runLogs.contains("Waiting for job") {
+                        runLogs = "Waiting for job to start...\n\nLogs will be available when the job completes."
+                        structuredLogs = nil
+                    }
+                    return
+                }
+                if job.status == .inProgress || job.conclusion == nil {
+                    if !runLogs.contains("Job is running") {
+                        runLogs = "Job is running...\n\nLogs will be available when the job completes."
+                        structuredLogs = nil
+                    }
+                    return
+                }
+            } else if selectedRun?.isInProgress == true {
+                if !runLogs.contains("Workflow is running") {
+                    runLogs = "Workflow is running...\n\nLogs will be available when jobs complete."
                     structuredLogs = nil
                 }
                 return
             }
-            if job.status == .inProgress || job.conclusion == nil {
-                if !runLogs.contains("Job is running") {
-                    runLogs = "Job is running...\n\nLogs will be available when the job completes."
-                    structuredLogs = nil
-                }
-                return
-            }
-        } else if selectedRun?.isInProgress == true {
-            if !runLogs.contains("Workflow is running") {
-                runLogs = "Workflow is running...\n\nLogs will be available when jobs complete."
-                structuredLogs = nil
-            }
-            return
         }
 
-        // Job is completed - fetch logs
+        // Fetch logs
         do {
             if let job = jobs.first(where: { $0.id == jobId }), !job.steps.isEmpty {
                 let structured = try await Task.detached {
-                    try await provider?.getStructuredLogs(repoPath: path, runId: runId, jobId: jobId, steps: job.steps)
+                    try await providerImpl?.getStructuredLogs(repoPath: path, runId: runId, jobId: jobId, steps: job.steps)
                 }.value
 
                 if let structured = structured {
@@ -451,7 +460,7 @@ class WorkflowService: ObservableObject {
 
             // Fallback to plain text logs
             let logs = try await Task.detached {
-                try await provider?.getRunLogs(repoPath: path, runId: runId, jobId: jobId) ?? ""
+                try await providerImpl?.getRunLogs(repoPath: path, runId: runId, jobId: jobId) ?? ""
             }.value
 
             if logs != currentContent {

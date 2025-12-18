@@ -24,7 +24,7 @@ class LogRowView: NSTableRowView {
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
-        NSColor.selectedContentBackgroundColor.setFill()
+        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
         dirtyRect.fill()
     }
 }
@@ -216,7 +216,7 @@ class GroupHeaderCellView: NSView {
 // MARK: - Log Line Cell
 
 class LogLineCellView: NSView {
-    private let textField = NSTextField(labelWithString: "")
+    private let label = NSTextField(wrappingLabelWithString: "")
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -229,23 +229,34 @@ class LogLineCellView: NSView {
     }
 
     private func setupViews() {
-        textField.isSelectable = true
-        textField.drawsBackground = false
-        textField.isBordered = false
-        textField.cell?.truncatesLastVisibleLine = false
-        textField.cell?.wraps = false
-        textField.translatesAutoresizingMaskIntoConstraints = false
+        label.isSelectable = true
+        label.isEditable = false
+        label.drawsBackground = false
+        label.isBordered = false
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.allowsDefaultTighteningForTruncation = false
+        label.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(textField)
+        addSubview(label)
 
         NSLayoutConstraint.activate([
-            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 40),
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -1),
         ])
     }
 
+    override func layout() {
+        super.layout()
+        let availableWidth = bounds.width - 20
+        if availableWidth > 0 {
+            label.preferredMaxLayoutWidth = availableWidth
+        }
+    }
+
     func configure(attributed: NSAttributedString) {
-        textField.attributedStringValue = attributed
+        label.attributedStringValue = attributed
     }
 }

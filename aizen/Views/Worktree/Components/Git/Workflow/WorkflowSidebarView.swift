@@ -326,12 +326,6 @@ struct WorkflowSidebarRow: View {
                         .onEnded { _ in isButtonPressed = false }
                 )
                 .help(String(localized: "git.workflow.run"))
-            } else {
-                Image(systemName: "pause.circle")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 32, height: 32)
-                    .help(String(localized: "git.workflow.disabled"))
             }
         }
         .padding(.horizontal, 10)

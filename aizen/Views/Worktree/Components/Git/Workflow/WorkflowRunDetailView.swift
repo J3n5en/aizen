@@ -28,17 +28,21 @@ struct WorkflowRunDetailView: View {
                logs.contains("Cancelling workflow") ||
                logs.contains("Workflow run cancelled") ||
                logs.contains("Failed to cancel") ||
-               logs.contains("Failed to load logs")
+               logs.contains("Failed to load logs") ||
+               logs.contains("No logs available") ||
+               logs.contains("Error fetching logs")
     }
 
     private var statusMessageIcon: String {
         let logs = service.runLogs
         if logs.contains("cancelled") || logs.contains("Cancelling") {
             return "stop.circle"
-        } else if logs.contains("Failed") {
+        } else if logs.contains("Failed") || logs.contains("Error") {
             return "exclamationmark.triangle"
         } else if logs.contains("Waiting") {
             return "clock"
+        } else if logs.contains("No logs available") {
+            return "doc.text"
         }
         return "hourglass"
     }
@@ -324,7 +328,7 @@ struct WorkflowRunDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .padding()
             } else {
-                WorkflowLogView(service.runLogs, structuredLogs: service.structuredLogs, fontSize: 11, showStepNavigation: true)
+                WorkflowLogView(service.runLogs, structuredLogs: service.structuredLogs, fontSize: 11, provider: service.provider)
             }
         }
     }
