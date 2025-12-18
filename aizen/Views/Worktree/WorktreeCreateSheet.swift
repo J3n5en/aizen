@@ -258,10 +258,12 @@ struct WorktreeCreateSheet: View {
 
         Task {
             do {
-                // Build path: repo/.aizen/{folderName}
-                let repoURL = URL(fileURLWithPath: repoPath)
-                let aizenDir = repoURL.appendingPathComponent(".aizen")
-                let worktreePath = aizenDir.appendingPathComponent(folderName).path
+                // Build path: ~/aizen/worktrees/{repoName}/{folderName}
+                let repoName = URL(fileURLWithPath: repoPath).lastPathComponent
+                let worktreesDir = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("aizen/worktrees")
+                    .appendingPathComponent(repoName)
+                let worktreePath = worktreesDir.appendingPathComponent(folderName).path
 
                 // Create new branch from selected base branch and create worktree
                 _ = try await repositoryManager.addWorktree(

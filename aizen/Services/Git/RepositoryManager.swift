@@ -285,22 +285,12 @@ class RepositoryManager: ObservableObject {
             throw Libgit2Error.invalidPath("Repository path is nil")
         }
 
-        // Ensure .aizen directory exists and is ignored
-        let aizenDir = URL(fileURLWithPath: repoPath).appendingPathComponent(".aizen")
-        try? FileManager.default.createDirectory(at: aizenDir, withIntermediateDirectories: true)
-
-        // Add .aizen to .gitignore if not already there
-        let gitignorePath = URL(fileURLWithPath: repoPath).appendingPathComponent(".gitignore")
-        if FileManager.default.fileExists(atPath: gitignorePath.path) {
-            if let gitignoreContent = try? String(contentsOf: gitignorePath, encoding: .utf8) {
-                if !gitignoreContent.contains(".aizen") {
-                    let newContent = gitignoreContent + "\n.aizen/\n"
-                    try? newContent.write(to: gitignorePath, atomically: true, encoding: .utf8)
-                }
-            }
-        } else {
-            try? ".aizen/\n".write(to: gitignorePath, atomically: true, encoding: .utf8)
-        }
+        // Ensure ~/aizen/worktrees/{repoName}/ directory exists
+        let repoName = URL(fileURLWithPath: repoPath).lastPathComponent
+        let worktreesDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("aizen/worktrees")
+            .appendingPathComponent(repoName)
+        try? FileManager.default.createDirectory(at: worktreesDir, withIntermediateDirectories: true)
 
         try await worktreeService.addWorktree(at: repoPath, path: path, branch: branch, createBranch: createBranch, baseBranch: baseBranch)
 
