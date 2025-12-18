@@ -87,7 +87,17 @@ struct WorkflowSidebarView: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
 
-            if service.workflows.isEmpty {
+            if service.isLoading && service.workflows.isEmpty {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Loading...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+            } else if service.workflows.isEmpty {
                 HStack {
                     Image(systemName: "doc.badge.gearshape")
                         .foregroundStyle(.tertiary)
@@ -119,7 +129,17 @@ struct WorkflowSidebarView: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
 
-            if service.runs.isEmpty {
+            if service.isLoading && service.runs.isEmpty {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Loading...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+            } else if service.runs.isEmpty {
                 HStack {
                     Image(systemName: "clock.badge.questionmark")
                         .foregroundStyle(.tertiary)
