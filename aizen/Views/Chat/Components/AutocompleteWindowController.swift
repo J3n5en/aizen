@@ -7,34 +7,57 @@
 
 import AppKit
 import SwiftUI
+import Combine
+
+@MainActor
+final class AutocompletePopupModel: ObservableObject {
+    @Published var items: [AutocompleteItem] = []
+    @Published var selectedIndex: Int = 0
+    @Published var trigger: AutocompleteTrigger?
+
+    var onTap: ((AutocompleteItem) -> Void)?
+    var onSelect: (() -> Void)?
+}
 
 final class AutocompleteWindowController: NSWindowController {
     private var isWindowAboveCursor = false
     private weak var parentWindow: NSWindow?
+    private let model = AutocompletePopupModel()
+    private var lastItemCount: Int = -1
 
     override init(window: NSWindow?) {
         super.init(window: window ?? Self.makeWindow())
+        if let window = self.window {
+            let hostingView = NSHostingView(rootView: InlineAutocompletePopupView(model: model))
+
+            hostingView.wantsLayer = true
+            hostingView.layer?.isOpaque = false
+            hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+
+            window.contentView = hostingView
+            currentHostingView = hostingView
+        }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private static let defaultWidth: CGFloat = 350
+    private static let defaultWidth: CGFloat = 360
 
     static func makeWindow() -> NSWindow {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: defaultWidth, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: defaultWidth, height: 120),
             styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
-            defer: true
+            defer: false
         )
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isExcludedFromWindowsMenu = true
         panel.isReleasedWhenClosed = false
         panel.level = .popUpMenu
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.animationBehavior = .utilityWindow
@@ -45,17 +68,30 @@ final class AutocompleteWindowController: NSWindowController {
 
     private var currentHostingView: NSView?
 
-    func setContent<Content: View>(_ view: Content) {
-        let hostingView = NSHostingView(rootView: view)
-        currentHostingView = hostingView
-        window?.contentView = hostingView
+    func configureActions(
+        onTap: @escaping (AutocompleteItem) -> Void,
+        onSelect: @escaping () -> Void
+    ) {
+        model.onTap = onTap
+        model.onSelect = onSelect
+    }
+
+    func update(state: AutocompleteState) {
+        model.trigger = state.trigger
+        model.items = state.items
+        model.selectedIndex = state.selectedIndex
+
+        if state.items.count != lastItemCount {
+            lastItemCount = state.items.count
+            updateWindowSize(itemCount: state.items.count)
+        }
     }
 
     func updateWindowSize(itemCount: Int) {
         // Calculate height based on content
-        let headerHeight: CGFloat = 35
-        let emptyStateHeight: CGFloat = 50
-        let rowHeight: CGFloat = 52
+        let headerHeight: CGFloat = 38
+        let emptyStateHeight: CGFloat = 54
+        let rowHeight: CGFloat = 44
         let maxVisibleItems = 5
 
         let contentHeight: CGFloat
@@ -142,9 +178,10 @@ final class AutocompleteWindowController: NSWindowController {
         }
         window.orderOut(nil)
         parentWindow = nil
-        // Reset content so it gets recreated next time with fresh handler reference
-        currentHostingView = nil
-        window.contentView = nil
+        model.items = []
+        model.selectedIndex = 0
+        model.trigger = nil
+        lastItemCount = -1
     }
 
     var isVisible: Bool {

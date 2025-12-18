@@ -7,6 +7,24 @@
 
 import SwiftUI
 
+struct InlineAutocompletePopupView: View {
+    @ObservedObject var model: AutocompletePopupModel
+
+    var body: some View {
+        InlineAutocompleteView(
+            items: model.items,
+            selectedIndex: model.selectedIndex,
+            trigger: model.trigger,
+            onTap: { item in
+                model.onTap?(item)
+            },
+            onSelect: {
+                model.onSelect?()
+            }
+        )
+    }
+}
+
 struct InlineAutocompleteView: View {
     let items: [AutocompleteItem]
     let selectedIndex: Int
@@ -15,30 +33,31 @@ struct InlineAutocompleteView: View {
     let onSelect: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let trigger = trigger {
-                AutocompleteHeader(trigger: trigger)
-            }
+        LiquidGlassCard(
+            cornerRadius: 16,
+            shadowOpacity: 0.30,
+            tint: .black.opacity(0.16),
+            sheenOpacity: 0.55
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                if let trigger = trigger {
+                    AutocompleteHeader(trigger: trigger)
+                }
 
-            if items.isEmpty {
-                emptyStateView
-            } else {
-                AutocompleteListView(
-                    items: items,
-                    selectedIndex: selectedIndex,
-                    onTap: { item in
-                        onTap(item)
-                    }
-                )
+                if items.isEmpty {
+                    emptyStateView
+                } else {
+                    AutocompleteListView(
+                        items: items,
+                        selectedIndex: selectedIndex,
+                        onTap: { item in
+                            onTap(item)
+                        }
+                    )
+                }
             }
         }
-        .frame(width: 350)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(.separator.opacity(0.3), lineWidth: 0.5)
-        }
+        .frame(width: 360)
     }
 
     private var emptyStateView: some View {
@@ -61,7 +80,7 @@ private struct AutocompleteListView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         AutocompleteRow(
                             item: item,
@@ -74,13 +93,17 @@ private struct AutocompleteListView: View {
                     }
                 }
             }
-            .frame(maxHeight: 250)
+            .frame(maxHeight: 240)
             .scrollDisabled(items.count <= 5)
             .onAppear {
                 // Scroll to selected item when view appears
                 if selectedIndex >= 0 && selectedIndex < items.count {
-                    proxy.scrollTo(items[selectedIndex].id, anchor: nil)
+                    proxy.scrollTo(items[selectedIndex].id, anchor: .center)
                 }
+            }
+            .onChange(of: selectedIndex) { newValue in
+                guard newValue >= 0 && newValue < items.count else { return }
+                proxy.scrollTo(items[newValue].id, anchor: .center)
             }
         }
     }
@@ -95,19 +118,23 @@ private struct AutocompleteHeader: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Image(systemName: iconName)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 11, weight: .semibold))
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Text(hint)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 6) {
+                    KeyCap(text: "↑")
+                    KeyCap(text: "↓")
+                    KeyCap(text: "↩")
+                    KeyCap(text: "esc")
+                }
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
 
             Divider()
+                .opacity(0.25)
         }
     }
 
@@ -125,9 +152,6 @@ private struct AutocompleteHeader: View {
         }
     }
 
-    private var hint: String {
-        "↑↓ navigate • ↵ select • esc dismiss"
-    }
 }
 
 // MARK: - Row
@@ -137,13 +161,15 @@ private struct AutocompleteRow: View {
     let isSelected: Bool
 
     var body: some View {
+        let selectionShape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+
         HStack(spacing: 10) {
             itemIcon
                 .frame(width: 20, height: 20)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayName)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
@@ -158,8 +184,32 @@ private struct AutocompleteRow: View {
             Spacer()
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .padding(.vertical, 9)
+        .background(
+            selectionShape
+                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+                .overlay {
+                    if isSelected {
+                        selectionShape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    }
+                }
+        )
+        .overlay {
+            if isSelected {
+                LinearGradient(
+                    colors: [
+                        .white.opacity(0.12),
+                        .clear,
+                        .white.opacity(0.06),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .blendMode(.plusLighter)
+                .clipShape(selectionShape)
+                .allowsHitTesting(false)
+            }
+        }
         .contentShape(Rectangle())
     }
 

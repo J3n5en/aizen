@@ -10,6 +10,8 @@ import SwiftUI
 struct LiquidGlassCard<Content: View>: View {
     var cornerRadius: CGFloat = 24
     var shadowOpacity: Double = 0.45
+    var tint: Color = .black.opacity(0.22)
+    var sheenOpacity: Double = 0.22
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -19,7 +21,7 @@ struct LiquidGlassCard<Content: View>: View {
             if #available(macOS 26.0, *) {
                 GlassEffectContainer {
                     content()
-                        .glassEffect(.regular.tint(.black.opacity(0.22)), in: shape)
+                        .glassEffect(.regular.tint(tint), in: shape)
                 }
             } else {
                 content()
@@ -28,7 +30,24 @@ struct LiquidGlassCard<Content: View>: View {
         }
         .clipShape(shape)
         .overlay {
-            shape.strokeBorder(.white.opacity(0.12), lineWidth: 1)
+            shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
+        }
+        .overlay {
+            if #available(macOS 26.0, *) {
+                LinearGradient(
+                    colors: [
+                        .white.opacity(0.28 * sheenOpacity),
+                        .white.opacity(0.10 * sheenOpacity),
+                        .clear,
+                        .white.opacity(0.08 * sheenOpacity),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .blendMode(.plusLighter)
+                .allowsHitTesting(false)
+                .clipShape(shape)
+            }
         }
         .shadow(color: .black.opacity(shadowOpacity), radius: 40, x: 0, y: 22)
     }
