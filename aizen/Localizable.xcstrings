@@ -7668,6 +7668,17 @@
         }
       }
     },
+    "worktree.detail.copyPath" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Path"
+          }
+        }
+      }
+    },
     "worktree.detail.delete" : {
       "extractionState" : "manual",
       "localizations" : {
