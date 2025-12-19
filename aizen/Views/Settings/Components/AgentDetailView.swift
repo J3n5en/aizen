@@ -35,6 +35,10 @@ struct AgentDetailView: View {
     @State private var commands: [AgentCommand] = []
     @State private var showingCommandEditor = false
     @State private var selectedCommand: AgentCommand?
+    @State private var showingMCPMarketplace = false
+    @State private var mcpServerToRemove: MCPInstalledServer?
+    @State private var showingMCPRemoveConfirmation = false
+    @ObservedObject private var mcpManager = MCPManager.shared
 
     private var configSpec: AgentConfigSpec {
         AgentConfigRegistry.spec(for: metadata.id)
@@ -312,6 +316,43 @@ struct AgentDetailView: View {
                     }
                 }
 
+                // MARK: - MCP Servers
+
+                Section {
+                    if mcpManager.isSyncingServers(for: metadata.id) {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading MCP servers...")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        ForEach(mcpManager.servers(for: metadata.id)) { server in
+                            MCPInstalledServerRow(server: server) {
+                                mcpServerToRemove = server
+                                showingMCPRemoveConfirmation = true
+                            }
+                        }
+                    }
+
+                    Button {
+                        showingMCPMarketplace = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(Color.accentColor)
+                            Text("Browse MCP Servers")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } header: {
+                    Text("MCP Servers")
+                } footer: {
+                    Text("Extend agent capabilities with MCP servers")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 // MARK: - Danger Zone (custom agents only)
 
                 if !metadata.isBuiltIn {
@@ -481,6 +522,7 @@ struct AgentDetailView: View {
             await loadVersion()
             loadRulesPreview()
             loadCommands()
+            await mcpManager.syncInstalled(agentId: metadata.id, agentPath: metadata.executablePath)
         }
         .sheet(isPresented: $showingRulesEditor) {
             if let rulesFile = configSpec.rulesFile {
@@ -506,6 +548,34 @@ struct AgentDetailView: View {
                 agentName: metadata.name,
                 onDismiss: { loadCommands() }
             )
+        }
+        .sheet(isPresented: $showingMCPMarketplace) {
+            MCPMarketplaceView(
+                agentId: metadata.id,
+                agentPath: metadata.executablePath,
+                agentName: metadata.name
+            )
+        }
+        .alert("Remove MCP Server", isPresented: $showingMCPRemoveConfirmation) {
+            Button("Cancel", role: .cancel) {
+                mcpServerToRemove = nil
+            }
+            Button("Remove", role: .destructive) {
+                if let server = mcpServerToRemove {
+                    Task {
+                        try? await mcpManager.remove(
+                            serverName: server.serverName,
+                            agentId: metadata.id,
+                            agentPath: metadata.executablePath
+                        )
+                        mcpServerToRemove = nil
+                    }
+                }
+            }
+        } message: {
+            if let server = mcpServerToRemove {
+                Text("Remove \(server.displayName) from \(metadata.name)?")
+            }
         }
         .onDisappear {
             testTask?.cancel()
