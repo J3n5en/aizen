@@ -354,7 +354,7 @@ function AppContent() {
                 <span className="text-lg font-normal text-[#86868b]">{billingCycle === "monthly" ? "/mo" : "/yr"}</span>
               </div>
               <ul className="space-y-3 mb-8 flex-1">
-                {["Everything in Free", "Priority support", "Discord Pro role", "Support future development"].map((feature) => (
+                {["Everything in Free", "Support continued development", "Priority support", "Future exclusive features"].map((feature) => (
                   <li key={feature} className="flex items-center gap-3 text-[#86868b]">
                     <Check size={18} className="text-blue-500 flex-shrink-0" />
                     {feature}
@@ -377,7 +377,7 @@ function AppContent() {
               <p className="text-[#86868b] mb-6">One-time purchase</p>
               <div className="text-4xl font-bold mb-6">$179<span className="text-lg font-normal text-[#86868b]"></span></div>
               <ul className="space-y-3 mb-8 flex-1">
-                {["Everything in Free", "Priority support forever", "Discord Pro role", "Support future development"].map((feature) => (
+                {["Everything in Free", "Support continued development", "Priority support forever", "Future exclusive features"].map((feature) => (
                   <li key={feature} className="flex items-center gap-3 text-[#86868b]">
                     <Check size={18} className="text-blue-500 flex-shrink-0" />
                     {feature}

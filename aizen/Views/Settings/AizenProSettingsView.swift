@@ -354,7 +354,7 @@ private struct AizenProPlansSheet: View {
             title: "Pro",
             subtitle: "",
             price: proPriceLabel,
-            features: ["Priority support"],
+            features: ["Support continued development", "Priority support", "Future exclusive features"],
             isSelected: selectedPlan == .pro
         ) { // topContent
             GlassSegmentedTabs(
@@ -379,7 +379,7 @@ private struct AizenProPlansSheet: View {
             title: "Lifetime",
             subtitle: "One-time purchase",
             price: "$179",
-            features: ["Priority support"],
+            features: ["Support continued development", "Priority support forever", "Future exclusive features"],
             isSelected: selectedPlan == .lifetime
         ) {
             EmptyView()
