@@ -196,10 +196,11 @@ struct aizenApp: App {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.toolbarStyle = .unified
+        window.setContentSize(NSSize(width: 800, height: 550))
 
         // Add toolbar for unified style
         let toolbar = NSToolbar(identifier: "SettingsToolbar")
-        toolbar.displayMode = .iconOnly
+        toolbar.displayMode = .iconAndLabel
         window.toolbar = toolbar
 
         window.center()
