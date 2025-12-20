@@ -463,8 +463,12 @@ class ChatSessionViewModel: ObservableObject {
         session.$agentPlan
             .receive(on: DispatchQueue.main)
             .sink { [weak self] plan in
-                self?.logger.debug("Agent plan status changed: \(plan != nil)")
-                self?.currentAgentPlan = plan
+                guard let self = self else {
+                    Logger.forCategory("ChatSession").error("Plan update received but self is nil!")
+                    return
+                }
+                self.logger.info("Plan update received: \(plan?.entries.count ?? 0) entries, wasNil=\(self.currentAgentPlan == nil), isNil=\(plan == nil)")
+                self.currentAgentPlan = plan
             }
             .store(in: &cancellables)
 

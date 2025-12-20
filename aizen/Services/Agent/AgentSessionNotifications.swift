@@ -143,7 +143,11 @@ extension AgentSession {
                 // Coalesce plan updates - only update if content changed
                 // This prevents excessive UI rebuilds when multiple agents stream plan updates
                 if agentPlan != plan {
-                    logger.debug("Plan updated: \(plan.entries.count) entries")
+                    logger.info("Plan updated: \(plan.entries.count) entries, session=\(sessionId?.value ?? "nil")")
+                    // Log entry statuses for debugging
+                    for (idx, entry) in plan.entries.enumerated() {
+                        logger.debug("  Plan[\(idx)]: \(entry.status.rawValue) - \(entry.content.prefix(50))")
+                    }
                     agentPlan = plan
                 } else {
                     logger.debug("Plan update skipped (identical content)")
