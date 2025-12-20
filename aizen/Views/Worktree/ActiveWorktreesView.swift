@@ -161,11 +161,13 @@ struct ActiveWorktreesView: View {
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
+                .labelStyle(.titleAndIcon)
                 Button(role: .destructive) {
                     showTerminateAllConfirm = true
                 } label: {
                     Label("Terminate All", systemImage: "xmark.circle.fill")
                 }
+                .labelStyle(.titleAndIcon)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.red)
