@@ -124,7 +124,7 @@ enum AgentConfigRegistry {
                     AgentConfigFile(
                         id: "codex-rules",
                         name: "Instructions",
-                        path: "~/.codex/instructions.md",
+                        path: "~/.codex/AGENTS.md",
                         type: .markdown,
                         isRulesFile: true,
                         description: "Instructions that apply to all Codex sessions"
