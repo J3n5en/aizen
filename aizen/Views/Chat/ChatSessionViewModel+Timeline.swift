@@ -27,16 +27,22 @@ extension ChatSessionViewModel {
 
     /// Rebuild the timeline index from current items (uses stableId for consistent lookups)
     private func rebuildTimelineIndex() {
-        timelineIndex = Dictionary(uniqueKeysWithValues:
-            timelineItems.enumerated().map { ($1.stableId, $0) })
+        // Use uniquingKeysWith to handle duplicates gracefully (keep last index)
+        timelineIndex = Dictionary(
+            timelineItems.enumerated().map { ($1.stableId, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
     }
 
     // MARK: - Timeline
 
     /// Full rebuild - used only for initial load or major state changes
     func rebuildTimeline() {
+        // Build timeline and deduplicate by stableId (keep first occurrence)
+        var seen = Set<String>()
         timelineItems = (messages.map { .message($0) } + toolCalls.map { .toolCall($0) })
             .sorted { $0.timestamp < $1.timestamp }
+            .filter { seen.insert($0.stableId).inserted }
         rebuildTimelineIndex()
     }
 
@@ -126,6 +132,11 @@ extension ChatSessionViewModel {
 
     /// Insert timeline item maintaining sorted order by timestamp
     private func insertTimelineItem(_ item: TimelineItem) {
+        // Skip if item already exists (prevent duplicates)
+        if timelineItems.contains(where: { $0.stableId == item.stableId }) {
+            return
+        }
+
         let timestamp = item.timestamp
 
         // Binary search for insert position
