@@ -30,6 +30,9 @@ extension Notification.Name {
     /// Posted when Command+K is pressed to open command palette
     static let commandPaletteShortcut = Notification.Name("CommandPaletteShortcut")
 
+    /// Posted when Command+Shift+K is pressed to quick-switch to previous worktree
+    static let quickSwitchWorktree = Notification.Name("QuickSwitchWorktree")
+
     // MARK: - Navigation
 
     /// Posted when navigating to a specific worktree from command palette

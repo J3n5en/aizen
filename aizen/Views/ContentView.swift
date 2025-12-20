@@ -213,6 +213,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteShortcut)) { _ in
             showCommandPalette()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .quickSwitchWorktree)) { _ in
+            quickSwitchToPreviousWorktree()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToWorktree)) { notification in
             guard let info = notification.userInfo,
                   let workspaceId = info["workspaceId"] as? UUID,
@@ -240,6 +243,26 @@ struct ContentView: View {
         )
         commandPaletteController = controller
         controller.showWindow(nil)
+    }
+
+    private func quickSwitchToPreviousWorktree() {
+        let request: NSFetchRequest<Worktree> = Worktree.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \Worktree.lastAccessed, ascending: false)]
+
+        guard let worktrees = try? viewContext.fetch(request) else { return }
+
+        // Find first worktree that isn't the current one
+        let currentId = selectedWorktree?.id
+        guard let target = worktrees.first(where: { $0.id != currentId }),
+              let worktreeId = target.id,
+              let repoId = target.repository?.id,
+              let workspaceId = target.repository?.workspace?.id else {
+            return
+        }
+
+        target.lastAccessed = Date()
+        try? viewContext.save()
+        navigateToWorktree(workspaceId: workspaceId, repoId: repoId, worktreeId: worktreeId)
     }
 
     private func navigateToWorktree(workspaceId: UUID, repoId: UUID, worktreeId: UUID) {

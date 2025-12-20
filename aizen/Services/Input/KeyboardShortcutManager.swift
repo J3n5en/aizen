@@ -70,6 +70,12 @@ class KeyboardShortcutManager {
                 return nil
             }
 
+            // Command+Shift+K: Quick switch to previous worktree
+            if event.keyCode == KeyCode.k && event.modifierFlags.contains(.command) && event.modifierFlags.contains(.shift) {
+                NotificationCenter.default.post(name: .quickSwitchWorktree, object: nil)
+                return nil
+            }
+
             // Command+K: Command palette (global shortcut)
             if event.keyCode == KeyCode.k && event.modifierFlags.contains(.command) {
                 NotificationCenter.default.post(name: .commandPaletteShortcut, object: nil)
