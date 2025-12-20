@@ -17,6 +17,8 @@ struct ChatTabView: View {
     private let sessionManager = ChatSessionManager.shared
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.aizen", category: "ChatTabView")
     @State private var enabledAgents: [AgentMetadata] = []
+    @State private var cachedSessionIds: [UUID] = []
+    private let maxCachedSessions = 10
 
     @FetchRequest private var sessions: FetchedResults<ChatSession>
 
@@ -42,37 +44,75 @@ struct ChatTabView: View {
     var body: some View {
         if sessions.isEmpty {
             chatEmptyState
-        } else if let session = selectedSession ?? sessions.last {
-            ChatSessionView(
-                worktree: worktree,
-                session: session,
-                sessionManager: sessionManager,
-                viewContext: viewContext
-            )
-            .id(session.objectID)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(.easeInOut(duration: 0.2), value: selectedSessionId)
-            .onAppear {
-                if selectedSessionId == nil {
-                    selectedSessionId = sessions.first?.id
+        } else {
+            ZStack {
+                ForEach(cachedSessions) { session in
+                    ChatSessionView(
+                        worktree: worktree,
+                        session: session,
+                        sessionManager: sessionManager,
+                        viewContext: viewContext
+                    )
+                    .id(session.objectID)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .opacity(selectedSessionId == session.id ? 1 : 0)
+                    .allowsHitTesting(selectedSessionId == session.id)
+                    .zIndex(selectedSessionId == session.id ? 1 : 0)
                 }
             }
+            .animation(.easeInOut(duration: 0.2), value: selectedSessionId)
+            .onAppear {
+                syncSelectionAndCache()
+            }
+            .onChange(of: selectedSessionId) { _ in
+                updateCacheForSelection()
+            }
             .onChange(of: sessions.count) { _ in
-                // Validate that selectedSessionId exists in current sessions
-                // If not, select the most recent session
-                if let currentId = selectedSessionId,
-                   !sessions.contains(where: { $0.id == currentId }) {
-                    selectedSessionId = sessions.last?.id
-                } else if selectedSessionId == nil {
-                    selectedSessionId = sessions.last?.id
-                }
+                syncSelectionAndCache()
             }
         }
     }
 
-    private var selectedSession: ChatSession? {
-        guard let currentId = selectedSessionId else { return nil }
-        return sessions.first(where: { $0.id == currentId })
+    private var cachedSessions: [ChatSession] {
+        if cachedSessionIds.isEmpty {
+            let fallbackId = selectedSessionId ?? sessions.last?.id
+            if let fallbackId,
+               let fallback = sessions.first(where: { $0.id == fallbackId }) {
+                return [fallback]
+            }
+            if let last = sessions.last {
+                return [last]
+            }
+        }
+        return cachedSessionIds.compactMap { id in
+            sessions.first(where: { $0.id == id })
+        }
+    }
+
+    private func syncSelectionAndCache() {
+        if selectedSessionId == nil {
+            selectedSessionId = sessions.last?.id
+        } else if let currentId = selectedSessionId,
+                  !sessions.contains(where: { $0.id == currentId }) {
+            selectedSessionId = sessions.last?.id
+        }
+        pruneCache()
+        updateCacheForSelection()
+    }
+
+    private func updateCacheForSelection() {
+        guard let selectedId = selectedSessionId else { return }
+        guard sessions.contains(where: { $0.id == selectedId }) else { return }
+        cachedSessionIds.removeAll { $0 == selectedId }
+        cachedSessionIds.append(selectedId)
+        if cachedSessionIds.count > maxCachedSessions {
+            cachedSessionIds.removeFirst(cachedSessionIds.count - maxCachedSessions)
+        }
+    }
+
+    private func pruneCache() {
+        let validIds = Set(sessions.compactMap { $0.id })
+        cachedSessionIds.removeAll { !validIds.contains($0) }
     }
 
     private var chatEmptyState: some View {

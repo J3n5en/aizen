@@ -50,6 +50,7 @@ struct ChatMessageList: View {
     @State private var showLoadingView = false
     @State private var loadingStartTime: Date?
     private let minimumLoadingDuration: TimeInterval = 0.6
+    @State private var allowAnimations = false
 
     private var shouldShowLoading: Bool {
         isSessionInitializing && timelineItems.isEmpty
@@ -65,7 +66,7 @@ struct ChatMessageList: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: showLoadingView)
+        .animation(allowAnimations ? .easeInOut(duration: 0.25) : nil, value: showLoadingView)
         .onChange(of: shouldShowLoading) { newValue in
             if newValue {
                 // Start showing loading
@@ -93,6 +94,11 @@ struct ChatMessageList: View {
             if shouldShowLoading {
                 showLoadingView = true
                 loadingStartTime = Date()
+            }
+            if !allowAnimations {
+                DispatchQueue.main.async {
+                    self.allowAnimations = true
+                }
             }
         }
     }
@@ -138,6 +144,11 @@ struct ChatMessageList: View {
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 20)
+                .transaction { transaction in
+                    if !allowAnimations {
+                        transaction.disablesAnimations = true
+                    }
+                }
                 .background(
                     GeometryReader { contentGeometry in
                         Color.clear

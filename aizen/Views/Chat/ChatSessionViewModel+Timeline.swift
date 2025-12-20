@@ -77,8 +77,8 @@ extension ChatSessionViewModel {
             }
         }
 
-        // Only animate structural changes (new items), not content updates
-        if hasStructuralChanges {
+        // Only animate structural changes after initial load
+        if hasStructuralChanges && !previousMessageIds.isEmpty {
             withAnimation(.easeInOut(duration: 0.2)) { updateBlock() }
         } else {
             updateBlock()
@@ -119,8 +119,8 @@ extension ChatSessionViewModel {
             }
         }
 
-        // Only animate structural changes (new items), not content updates
-        if hasStructuralChanges {
+        // Only animate structural changes after initial load
+        if hasStructuralChanges && !previousToolCallIds.isEmpty {
             withAnimation(.easeInOut(duration: 0.2)) { updateBlock() }
         } else {
             updateBlock()
