@@ -35,7 +35,17 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber, @unchecked Senda
             let logger = Logger.forCategory("CrashReporter")
             logger.critical("Uncaught exception: \(exception.name.rawValue) - \(exception.reason ?? "no reason")")
             logger.critical("Stack trace:\n\(exception.callStackSymbols.joined(separator: "\n"))")
+
+            // Write to file synchronously before crash
+            CrashReporter.writeEmergencyCrashLog(
+                type: "exception",
+                reason: "\(exception.name.rawValue): \(exception.reason ?? "unknown")",
+                stack: exception.callStackSymbols
+            )
         }
+
+        // Set up signal handlers for Swift runtime crashes
+        setupSignalHandlers()
 
         logger.info("CrashReporter initialized")
     }
@@ -179,5 +189,67 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber, @unchecked Senda
             logger.critical("MainActor violation: \(message) at \(location)")
         }
         #endif
+    }
+
+    // MARK: - Signal Handlers
+
+    private func setupSignalHandlers() {
+        // These signals are commonly raised by Swift runtime crashes
+        signal(SIGABRT) { signal in
+            CrashReporter.handleSignal(signal, name: "SIGABRT")
+        }
+        signal(SIGSEGV) { signal in
+            CrashReporter.handleSignal(signal, name: "SIGSEGV")
+        }
+        signal(SIGBUS) { signal in
+            CrashReporter.handleSignal(signal, name: "SIGBUS")
+        }
+        signal(SIGILL) { signal in
+            CrashReporter.handleSignal(signal, name: "SIGILL")
+        }
+        signal(SIGFPE) { signal in
+            CrashReporter.handleSignal(signal, name: "SIGFPE")
+        }
+    }
+
+    private static func handleSignal(_ signal: Int32, name: String) {
+        let stack = Thread.callStackSymbols
+        writeEmergencyCrashLog(type: "signal", reason: name, stack: stack)
+
+        // Re-raise signal for system crash reporter
+        Darwin.signal(signal, SIG_DFL)
+        Darwin.raise(signal)
+    }
+
+    /// Write crash log synchronously before app terminates
+    static func writeEmergencyCrashLog(type: String, reason: String, stack: [String]) {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let crashDir = appSupport.appendingPathComponent("Aizen/CrashLogs", isDirectory: true)
+
+        try? FileManager.default.createDirectory(at: crashDir, withIntermediateDirectories: true)
+
+        let formatter = ISO8601DateFormatter()
+        let timestamp = formatter.string(from: Date())
+        let filename = "emergency_\(type)_\(timestamp).txt"
+        let fileURL = crashDir.appendingPathComponent(filename)
+
+        var content = """
+        Aizen Crash Report
+        Type: \(type)
+        Reason: \(reason)
+        Time: \(timestamp)
+
+        Stack Trace:
+        """
+
+        for (index, frame) in stack.enumerated() {
+            content += "\n\(index): \(frame)"
+        }
+
+        try? content.write(to: fileURL, atomically: false, encoding: .utf8)
+
+        // Also log to system log
+        let logger = Logger.forCategory("CrashReporter")
+        logger.critical("CRASH: \(type) - \(reason)")
     }
 }
