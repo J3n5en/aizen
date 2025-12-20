@@ -193,6 +193,29 @@ enum AgentConfigRegistry {
                 commandsDirectory: nil
             )
 
+        case "vibe":
+            return AgentConfigSpec(
+                agentId: "vibe",
+                configFiles: [
+                    AgentConfigFile(
+                        id: "vibe-rules",
+                        name: "System Prompt",
+                        path: "~/.vibe/prompts/cli.md",
+                        type: .markdown,
+                        isRulesFile: true,
+                        description: "Default system prompt for Vibe sessions"
+                    ),
+                    AgentConfigFile(
+                        id: "vibe-config",
+                        name: "Configuration",
+                        path: "~/.vibe/config.toml",
+                        type: .toml,
+                        description: "Vibe settings and preferences"
+                    )
+                ],
+                commandsDirectory: nil
+            )
+
         default:
             return AgentConfigSpec(
                 agentId: agentId,
@@ -203,6 +226,6 @@ enum AgentConfigRegistry {
     }
 
     static var supportedAgents: [String] {
-        ["claude", "codex", "gemini", "opencode"]
+        ["claude", "codex", "gemini", "opencode", "vibe"]
     }
 }

@@ -15,7 +15,8 @@ extension AgentRegistry {
         "codex": ["codex-acp", "codex"],
         "gemini": ["gemini"],
         "kimi": ["kimi"],
-        "opencode": ["opencode"]
+        "opencode": ["opencode"],
+        "vibe": ["vibe-acp"]
     ]
 
     // MARK: - Validation

@@ -30,6 +30,8 @@ extension AgentRegistry {
             return "\(basePath)/kimi/kimi"
         case "opencode":
             return "\(basePath)/opencode/node_modules/.bin/opencode"
+        case "vibe":
+            return "\(basePath)/vibe/vibe-acp"
         default:
             return "\(basePath)/\(agentId)/\(agentId)"
         }
@@ -123,6 +125,20 @@ extension AgentRegistry {
                 executablePath: Self.managedPath(for: "opencode"),
                 launchArgs: ["acp"],
                 installMethod: .npm(package: "opencode-ai@latest")
+            )
+        }
+
+        updateBuiltInAgent("vibe", in: &metadata) {
+            AgentMetadata(
+                id: "vibe",
+                name: "Vibe",
+                description: "Mistral's open-source CLI coding assistant",
+                iconType: .builtin("vibe"),
+                isBuiltIn: true,
+                isEnabled: true,
+                executablePath: Self.managedPath(for: "vibe"),
+                launchArgs: [],
+                installMethod: .uv(package: "mistral-vibe")
             )
         }
 

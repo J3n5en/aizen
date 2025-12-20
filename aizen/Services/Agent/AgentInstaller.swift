@@ -83,6 +83,8 @@ actor AgentInstaller {
             return (agentDir as NSString).appendingPathComponent("kimi")
         case "opencode":
             return (agentDir as NSString).appendingPathComponent("node_modules/.bin/opencode")
+        case "vibe":
+            return (agentDir as NSString).appendingPathComponent("vibe-acp")
         default:
             return ""
         }

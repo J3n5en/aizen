@@ -102,6 +102,14 @@ actor MCPConfigManager {
                 serverPath: ["mcpServers"],
                 format: .json
             )
+        case "vibe":
+            // Vibe uses TOML config with [[mcp_servers]] array
+            return AgentMCPConfigSpec(
+                agentId: "vibe",
+                configPath: "~/.vibe/config.toml",
+                serverPath: ["mcp_servers"],
+                format: .toml
+            )
         default:
             return nil
         }
