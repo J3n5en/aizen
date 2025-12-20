@@ -55,7 +55,7 @@ struct ActiveWorktreesView: View {
                     workspaceId: id,
                     name: workspace.name ?? "Workspace",
                     colorHex: workspace.colorHex,
-                    order: Int(workspace.order ?? 0),
+                    order: Int(workspace.order),
                     worktrees: [worktree],
                     isOther: false
                 )
@@ -148,6 +148,30 @@ struct ActiveWorktreesView: View {
         .onChange(of: activeWorktreeIDs) { _ in
             syncSelectionIfNeeded()
         }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                TitleSubtitleView(
+                    title: "Active Worktrees",
+                    subtitle: "\(selectionTitle) • \(selectionSubtitle)"
+                )
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    metrics.refreshNow()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                Button(role: .destructive) {
+                    showTerminateAllConfirm = true
+                } label: {
+                    Label("Terminate All", systemImage: "xmark.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.red)
+                .disabled(activeWorktrees.isEmpty)
+            }
+        }
         .alert("Terminate all sessions?", isPresented: $showTerminateAllConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Terminate All", role: .destructive) {
@@ -202,19 +226,11 @@ struct ActiveWorktreesView: View {
     private var detailView: some View {
         VStack(spacing: 12) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(selectionTitle)
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    Text(selectionSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
                 SummaryPills(
                     worktreeCount: selectedWorktrees.count,
                     counts: sessionCounts(for: selectedWorktrees)
                 )
+                Spacer()
             }
             .padding(.horizontal, 4)
 
@@ -248,21 +264,6 @@ struct ActiveWorktreesView: View {
         .padding(.top, 8)
         .padding(.horizontal, 16)
         .navigationTitle("Active Worktrees")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    metrics.refreshNow()
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                Button {
-                    showTerminateAllConfirm = true
-                } label: {
-                    Label("Terminate All", systemImage: "xmark.circle.fill")
-                }
-                .disabled(activeWorktrees.isEmpty)
-            }
-        }
     }
 
     private var metricsHeader: some View {
@@ -635,6 +636,24 @@ private struct SummaryBadge: View {
     }
 }
 
+private struct TitleSubtitleView: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.headline)
+                .lineLimit(1)
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+}
+
 private struct SectionHeader: View {
     let title: String
     let subtitle: String
@@ -666,18 +685,16 @@ private struct ActiveWorktreeRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(worktreeTitle)
                     .font(.headline)
+                    .lineLimit(1)
                 Text(worktree.path ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 6) {
-                HStack(spacing: 6) {
-                    if counts.chats > 0 { SessionBadge(label: "Chat", count: counts.chats, color: .blue) }
-                    if counts.terminals > 0 { SessionBadge(label: "Terminal", count: counts.terminals, color: .green) }
-                    if counts.browsers > 0 { SessionBadge(label: "Browser", count: counts.browsers, color: .orange) }
-                    if counts.files > 0 { SessionBadge(label: "Files", count: counts.files, color: .teal) }
-                }
+                SessionSummaryRow(counts: counts)
                 WorktreeSessionBar(counts: counts)
                     .frame(width: 140)
             }
@@ -707,19 +724,47 @@ private struct ActiveWorktreeRow: View {
     }
 }
 
-private struct SessionBadge: View {
-    let label: String
-    let count: Int
-    let color: Color
+private struct SessionSummaryRow: View {
+    let counts: SessionCounts
 
     var body: some View {
-        Text("\(label) \(count)")
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.14))
-            .foregroundStyle(color)
-            .clipShape(Capsule())
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                chip(title: "Chat", systemImage: "message.fill", count: counts.chats, color: .blue)
+                chip(title: "Terminal", systemImage: "terminal.fill", count: counts.terminals, color: .green)
+                chip(title: "Browser", systemImage: "safari.fill", count: counts.browsers, color: .orange)
+                chip(title: "Files", systemImage: "doc.on.doc.fill", count: counts.files, color: .teal)
+            }
+            HStack(spacing: 6) {
+                chip(title: nil, systemImage: "message.fill", count: counts.chats, color: .blue)
+                chip(title: nil, systemImage: "terminal.fill", count: counts.terminals, color: .green)
+                chip(title: nil, systemImage: "safari.fill", count: counts.browsers, color: .orange)
+                chip(title: nil, systemImage: "doc.on.doc.fill", count: counts.files, color: .teal)
+            }
+            Text("\(counts.total) sessions")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+    }
+
+    private func chip(title: String?, systemImage: String, count: Int, color: Color) -> some View {
+        Group {
+            if count > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: systemImage)
+                    Text(title != nil ? "\(title ?? "") \(count)" : "\(count)")
+                }
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(color.opacity(0.14))
+                .foregroundStyle(color)
+                .clipShape(Capsule())
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            }
+        }
     }
 }
 
