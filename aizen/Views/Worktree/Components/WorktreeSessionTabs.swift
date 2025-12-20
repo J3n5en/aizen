@@ -22,6 +22,22 @@ struct TerminalPersistenceIndicator: View {
     }
 }
 
+// MARK: - Pending Permission Indicator
+
+struct PendingPermissionIndicator: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.orange)
+            .frame(width: 8, height: 8)
+            .opacity(isAnimating ? 0.4 : 1.0)
+            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isAnimating)
+            .onAppear { isAnimating = true }
+            .help("Pending permission request - click to respond")
+    }
+}
+
 // MARK: - Session Tab Button
 
 struct SessionTabButton<Content: View>: View {
@@ -76,6 +92,8 @@ struct SessionTabsScrollView: View {
     @State private var scrollViewProxy: ScrollViewProxy?
     @State private var sessionToClose: TerminalSession?
     @State private var showCloseConfirmation = false
+
+    @ObservedObject private var sessionManager = ChatSessionManager.shared
 
     var body: some View {
         HStack(spacing: 4) {
@@ -183,6 +201,8 @@ struct SessionTabsScrollView: View {
 
     @ViewBuilder
     private func chatTabView(session: ChatSession) -> some View {
+        let hasPendingPermission = session.id.map { sessionManager.hasPendingPermission(for: $0) } ?? false
+
         SessionTabButton(
             isSelected: selectedChatSessionId == session.id,
             action: { selectedChatSessionId = session.id }
@@ -201,6 +221,11 @@ struct SessionTabsScrollView: View {
 
                 Text(session.title ?? session.agentName?.capitalized ?? String(localized: "worktree.session.chat"))
                     .font(.callout)
+
+                // Pending permission indicator
+                if hasPendingPermission {
+                    PendingPermissionIndicator()
+                }
             }
         }
     }

@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import os.log
 
 /// Main actor class responsible for handling permission requests from agents
 @MainActor
@@ -20,6 +21,11 @@ class AgentPermissionHandler: ObservableObject {
     // MARK: - Private Properties
 
     private var permissionContinuation: CheckedContinuation<RequestPermissionResponse, Never>?
+    private var timeoutTask: Task<Void, Never>?
+    private let logger = Logger.forCategory("PermissionHandler")
+
+    /// Timeout for permission requests (5 minutes)
+    private let permissionTimeout: Duration = .seconds(300)
 
     // MARK: - Initialization
 
@@ -27,17 +33,54 @@ class AgentPermissionHandler: ObservableObject {
 
     // MARK: - Permission Handling
 
-    /// Handle permission request from agent - suspends until user responds
+    /// Handle permission request from agent - suspends until user responds or timeout
     func handlePermissionRequest(request: RequestPermissionRequest) async -> RequestPermissionResponse {
+        // Cancel any existing timeout
+        timeoutTask?.cancel()
+
         return await withCheckedContinuation { continuation in
             self.permissionRequest = request
             self.showingPermissionAlert = true
             self.permissionContinuation = continuation
+
+            // Start timeout timer
+            self.timeoutTask = Task { [weak self] in
+                do {
+                    try await Task.sleep(for: self?.permissionTimeout ?? .seconds(300))
+                    // Timeout reached - auto-deny
+                    await self?.handleTimeout()
+                } catch {
+                    // Task cancelled - user responded in time
+                }
+            }
         }
+    }
+
+    /// Handle timeout - auto-deny the permission request
+    private func handleTimeout() {
+        guard permissionContinuation != nil else { return }
+
+        logger.warning("Permission request timed out - auto-denying")
+
+        showingPermissionAlert = false
+        permissionRequest = nil
+
+        if let continuation = permissionContinuation {
+            let outcome = PermissionOutcome(optionId: "deny")
+            let response = RequestPermissionResponse(outcome: outcome)
+            continuation.resume(returning: response)
+            permissionContinuation = nil
+        }
+
+        timeoutTask = nil
     }
 
     /// Respond to a permission request with user's choice
     func respondToPermission(optionId: String) {
+        // Cancel timeout - user responded in time
+        timeoutTask?.cancel()
+        timeoutTask = nil
+
         showingPermissionAlert = false
         permissionRequest = nil
 
@@ -51,6 +94,10 @@ class AgentPermissionHandler: ObservableObject {
 
     /// Cancel any pending permission request
     func cancelPendingRequest() {
+        // Cancel timeout
+        timeoutTask?.cancel()
+        timeoutTask = nil
+
         if let continuation = permissionContinuation {
             let outcome = PermissionOutcome(optionId: "deny")
             let response = RequestPermissionResponse(outcome: outcome)
@@ -60,5 +107,10 @@ class AgentPermissionHandler: ObservableObject {
 
         showingPermissionAlert = false
         permissionRequest = nil
+    }
+
+    /// Check if there's a pending permission request
+    var hasPendingRequest: Bool {
+        permissionContinuation != nil
     }
 }
