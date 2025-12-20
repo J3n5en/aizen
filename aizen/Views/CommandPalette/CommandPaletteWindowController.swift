@@ -238,14 +238,12 @@ struct CommandPaletteContent: View {
 
     private enum SearchFieldKind: Int {
         case branch = 6
-        case worktreeName = 5
-        case repo = 4
-        case workspace = 3
+        case repo = 5
+        case workspace = 4
         case note = 2
-        case path = 1
     }
 
-    private func searchFields(for worktree: Worktree, includePath: Bool) -> [(SearchFieldKind, String)] {
+    private func searchFields(for worktree: Worktree) -> [(SearchFieldKind, String)] {
         var fields: [(SearchFieldKind, String)] = []
 
         if let branch = worktree.branch, !branch.isEmpty {
@@ -257,15 +255,6 @@ struct CommandPaletteContent: View {
         if let workspaceName = worktree.repository?.workspace?.name, !workspaceName.isEmpty {
             fields.append((.workspace, workspaceName))
         }
-        if let path = worktree.path, !path.isEmpty {
-            let name = URL(fileURLWithPath: path).lastPathComponent
-            if !name.isEmpty {
-                fields.append((.worktreeName, name))
-            }
-            if includePath {
-                fields.append((.path, path))
-            }
-        }
         if let note = worktree.note, !note.isEmpty {
             fields.append((.note, note))
         }
@@ -276,9 +265,8 @@ struct CommandPaletteContent: View {
     private func matchScore(for worktree: Worktree, query: String) -> Int? {
         let normalizedQuery = query.lowercased()
         let tokens = normalizedQuery.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        let includePath = normalizedQuery.contains("/") || normalizedQuery.contains("~")
 
-        let fields = searchFields(for: worktree, includePath: includePath)
+        let fields = searchFields(for: worktree)
             .map { (kind, value) in (kind, value.lowercased()) }
         if fields.isEmpty { return nil }
 
@@ -360,16 +348,6 @@ struct CommandPaletteContent: View {
         .onChange(of: filteredWorktrees.count) { _ in
             if selectedIndex >= filteredWorktrees.count {
                 selectedIndex = max(0, filteredWorktrees.count - 1)
-            }
-        }
-        .onMoveCommand { direction in
-            switch direction {
-            case .down:
-                moveSelectionDown()
-            case .up:
-                moveSelectionUp()
-            default:
-                break
             }
         }
         .background {
