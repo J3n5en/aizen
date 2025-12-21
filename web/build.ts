@@ -130,6 +130,7 @@ const result = await Bun.build({
   target: "browser",
   sourcemap: "linked",
   splitting: true,
+  publicPath: "/",
   naming: {
     chunk: "[dir]/[name]-[hash].[ext]",
     entry: "[dir]/[name].[ext]",
