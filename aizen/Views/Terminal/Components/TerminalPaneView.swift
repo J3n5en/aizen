@@ -88,9 +88,15 @@ struct TerminalPaneView: View {
         .ignoresSafeArea(.container, edges: .bottom)
         .opacity(isFocused ? 1.0 : 0.6)
         .clipped()
-        .onTapGesture {
-            onFocus()
-        }
+        .animation(nil, value: isFocused)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isFocused {
+                        onFocus()
+                    }
+                }
+        )
         .onChange(of: isFocused) { newValue in
             if newValue {
                 shouldFocus = true
