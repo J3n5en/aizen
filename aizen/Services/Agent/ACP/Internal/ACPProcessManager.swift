@@ -254,6 +254,8 @@ actor ACPProcessManager {
             try? stderrHandle.close()
         }
 
+        await flushPartialLineIfNeeded()
+
         try? stdinPipe?.fileHandleForWriting.close()
 
         stdinPipe = nil
@@ -261,5 +263,12 @@ actor ACPProcessManager {
         stderrPipe = nil
         process = nil
         readBuffer.removeAll()
+    }
+
+    private func flushPartialLineIfNeeded() async {
+        guard !readBuffer.isEmpty else { return }
+        let trailing = readBuffer
+        readBuffer.removeAll()
+        await onDataReceived?(trailing)
     }
 }
