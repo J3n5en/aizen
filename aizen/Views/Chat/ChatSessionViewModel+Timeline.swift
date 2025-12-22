@@ -52,16 +52,19 @@ extension ChatSessionViewModel {
         let addedIds = newIds.subtracting(previousMessageIds)
         let removedIds = previousMessageIds.subtracting(newIds)
         let hasStructuralChanges = !addedIds.isEmpty || !removedIds.isEmpty
+        var didMutate = false
 
         let updateBlock = { [self] in
             // 0. Remove any messages that no longer exist
             if !removedIds.isEmpty {
                 timelineItems.removeAll { removedIds.contains($0.stableId) }
+                didMutate = true
             }
 
             // 1. Insert new messages FIRST (changes structure/indices)
             for newMsg in newMessages where addedIds.contains(newMsg.id) {
                 insertTimelineItem(.message(newMsg))
+                didMutate = true
             }
 
             // 2. Rebuild index IMMEDIATELY after structural changes
@@ -73,6 +76,7 @@ extension ChatSessionViewModel {
             for newMsg in newMessages where previousMessageIds.contains(newMsg.id) {
                 if let idx = timelineIndex[newMsg.id], idx < timelineItems.count {
                     timelineItems[idx] = .message(newMsg)
+                    didMutate = true
                 }
             }
         }
@@ -82,6 +86,11 @@ extension ChatSessionViewModel {
             withAnimation(.easeInOut(duration: 0.2)) { updateBlock() }
         } else {
             updateBlock()
+        }
+
+        // Force publish for in-place mutations (content updates during streaming).
+        if didMutate {
+            timelineItems = timelineItems
         }
 
         // Update tracked IDs for next sync
@@ -94,16 +103,19 @@ extension ChatSessionViewModel {
         let addedIds = newIds.subtracting(previousToolCallIds)
         let removedIds = previousToolCallIds.subtracting(newIds)
         let hasStructuralChanges = !addedIds.isEmpty || !removedIds.isEmpty
+        var didMutate = false
 
         let updateBlock = { [self] in
             // 0. Remove any tool calls that no longer exist
             if !removedIds.isEmpty {
                 timelineItems.removeAll { removedIds.contains($0.stableId) }
+                didMutate = true
             }
 
             // 1. Insert new tool calls FIRST (changes structure/indices)
             for newCall in newToolCalls where addedIds.contains(newCall.id) {
                 insertTimelineItem(.toolCall(newCall))
+                didMutate = true
             }
 
             // 2. Rebuild index IMMEDIATELY after structural changes
@@ -115,6 +127,7 @@ extension ChatSessionViewModel {
             for newCall in newToolCalls where previousToolCallIds.contains(newCall.id) {
                 if let idx = timelineIndex[newCall.id], idx < timelineItems.count {
                     timelineItems[idx] = .toolCall(newCall)
+                    didMutate = true
                 }
             }
         }
@@ -124,6 +137,11 @@ extension ChatSessionViewModel {
             withAnimation(.easeInOut(duration: 0.2)) { updateBlock() }
         } else {
             updateBlock()
+        }
+
+        // Force publish for in-place mutations.
+        if didMutate {
+            timelineItems = timelineItems
         }
 
         // Update tracked IDs for next sync
