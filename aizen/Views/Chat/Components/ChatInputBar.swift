@@ -20,6 +20,7 @@ struct ChatInputBar: View {
     @Binding var showingPermissionError: Bool
     @Binding var permissionErrorMessage: String
 
+    let worktreePath: String
     let session: AgentSession?
     let currentModeId: String?
     let selectedAgent: String
@@ -220,14 +221,25 @@ struct ChatInputBar: View {
                 isHoveringInput = hovering
             }
         }
-        .fileImporter(
-            isPresented: $showingAttachmentPicker,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: true
-        ) { result in
-            if case .success(let urls) = result {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    attachments.append(contentsOf: urls.map { .file($0) })
+        .onChange(of: showingAttachmentPicker) { isShowing in
+            guard isShowing else { return }
+            showingAttachmentPicker = false
+
+            let panel = NSOpenPanel()
+            panel.allowsMultipleSelection = true
+            panel.canChooseDirectories = false
+            panel.canChooseFiles = true
+            panel.allowedContentTypes = [.item]
+
+            if !worktreePath.isEmpty {
+                panel.directoryURL = URL(fileURLWithPath: worktreePath)
+            }
+
+            panel.begin { response in
+                if response == .OK {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        attachments.append(contentsOf: panel.urls.map { .file($0) })
+                    }
                 }
             }
         }

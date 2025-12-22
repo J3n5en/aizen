@@ -376,48 +376,34 @@ struct ChatAttachmentChip: View {
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Button {
-                showingDetail = true
-            } label: {
-                HStack(spacing: 6) {
-                    // Show thumbnail for pasted images
-                    if case .image(let data, _) = attachment,
-                       let nsImage = NSImage(data: data) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 24, height: 24)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    } else {
-                        Image(systemName: attachment.iconName)
-                            .font(.system(size: 10))
-                            .foregroundStyle(iconColor)
+        AttachmentGlassCard(cornerRadius: 10) {
+            HStack(spacing: 6) {
+                Button {
+                    showingDetail = true
+                } label: {
+                    HStack(spacing: 6) {
+                        attachmentIcon
+
+                        Text(attachment.displayName)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
                     }
-
-                    Text(attachment.displayName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
                 }
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            Button {
-                onDelete()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .opacity(isHovering ? 1 : 0.6)
             }
-            .buttonStyle(.plain)
-            .opacity(isHovering ? 1 : 0.6)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(backgroundFill)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
         }
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -429,29 +415,31 @@ struct ChatAttachmentChip: View {
         }
     }
 
-    private var iconColor: Color {
+    @ViewBuilder
+    private var attachmentIcon: some View {
         switch attachment {
-        case .file:
-            return .secondary
-        case .image:
-            return .purple
+        case .file(let url):
+            FileIconView(path: url.path, size: 16)
+        case .image(let data, _):
+            if let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 20, height: 20)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.purple)
+            }
         case .reviewComments:
-            return .blue
+            Image(systemName: "text.bubble")
+                .font(.system(size: 12))
+                .foregroundStyle(.blue)
         case .buildError:
-            return .red
-        }
-    }
-
-    private var backgroundFill: Color {
-        switch attachment {
-        case .file:
-            return Color(NSColor.controlBackgroundColor)
-        case .image:
-            return Color.purple.opacity(0.15)
-        case .reviewComments:
-            return Color.blue.opacity(0.15)
-        case .buildError:
-            return Color.red.opacity(0.15)
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(.red)
         }
     }
 

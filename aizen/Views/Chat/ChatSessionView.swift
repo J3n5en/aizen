@@ -142,6 +142,7 @@ struct ChatSessionView: View {
                         showingAttachmentPicker: $showingAttachmentPicker,
                         showingPermissionError: $showingPermissionError,
                         permissionErrorMessage: $permissionErrorMessage,
+                        worktreePath: viewModel.worktree.path ?? "",
                         session: viewModel.currentAgentSession,
                         currentModeId: viewModel.currentModeId,
                         selectedAgent: viewModel.selectedAgent,

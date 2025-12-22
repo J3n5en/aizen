@@ -204,37 +204,35 @@ struct UserBubble<Background: View>: View {
     }
 
     var body: some View {
-        bubbleContent
-            .padding(.horizontal, hPadding)
-            .padding(.vertical, vPadding)
-            .frame(width: calculatedBubbleWidth, alignment: .trailing)
-            .background(backgroundView())
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .background(measureUnwrappedWidth)
-            .contextMenu {
-                Button {
-                    copyAction()
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+        VStack(alignment: .trailing, spacing: 4) {
+            // Text bubble
+            bubbleContent
+                .padding(.horizontal, hPadding)
+                .padding(.vertical, vPadding)
+                .frame(width: calculatedBubbleWidth, alignment: .trailing)
+                .background(backgroundView())
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(measureUnwrappedWidth)
+                .contextMenu {
+                    Button {
+                        copyAction()
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
                 }
-            }
-    }
 
-    private var bubbleContent: some View {
-        VStack(alignment: .trailing, spacing: 6) {
+            // Image attachments outside bubble
             if hasImageAttachments {
-                ForEach(Array(contentBlocks.enumerated()), id: \.offset) { _, block in
-                    if case .image(let imageContent) = block {
-                        ACPImageView(data: imageContent.data, mimeType: imageContent.mimeType)
+                VStack(alignment: .trailing, spacing: 4) {
+                    ForEach(Array(contentBlocks.enumerated()), id: \.offset) { _, block in
+                        if case .image(let imageContent) = block {
+                            ACPImageView(data: imageContent.data, mimeType: imageContent.mimeType)
+                        }
                     }
                 }
             }
 
-            Text(content)
-                .textSelection(.enabled)
-                .multilineTextAlignment(.trailing)
-                .fixedSize(horizontal: false, vertical: true)
-
+            // Footer outside bubble
             HStack(spacing: 8) {
                 Text(formatTimestamp(timestamp))
                     .font(.system(size: 10))
@@ -248,8 +246,16 @@ struct UserBubble<Background: View>: View {
                 .buttonStyle(.plain)
                 .help(String(localized: "chat.message.copy"))
             }
+            .padding(.trailing, 4)
         }
-        .frame(maxWidth: maxContentWidth, alignment: .trailing)
+    }
+
+    private var bubbleContent: some View {
+        Text(content)
+            .textSelection(.enabled)
+            .multilineTextAlignment(.trailing)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: maxContentWidth, alignment: .trailing)
     }
 
     private var measureUnwrappedWidth: some View {

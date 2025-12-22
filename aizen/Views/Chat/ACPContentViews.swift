@@ -9,6 +9,44 @@ import SwiftUI
 import CodeEditSourceEditor
 import CodeEditLanguages
 
+// MARK: - Attachment Glass Card
+
+struct AttachmentGlassCard<Content: View>: View {
+    var cornerRadius: CGFloat = 12
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        content()
+            .background { glassBackground(shape: shape) }
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+            }
+    }
+
+    @ViewBuilder
+    private func glassBackground(shape: RoundedRectangle) -> some View {
+        if #available(macOS 26.0, *) {
+            ZStack {
+                GlassEffectContainer {
+                    shape
+                        .fill(.white.opacity(0.001))
+                        .glassEffect(.regular.tint(.black.opacity(0.18)), in: shape)
+                }
+                .allowsHitTesting(false)
+
+                shape
+                    .fill(.black.opacity(0.08))
+                    .allowsHitTesting(false)
+            }
+        } else {
+            shape.fill(.ultraThinMaterial)
+        }
+    }
+}
+
 // MARK: - Image Content View
 
 struct ACPImageView: View {
@@ -19,25 +57,23 @@ struct ACPImageView: View {
         Group {
             if let imageData = Data(base64Encoded: data),
                let nsImage = NSImage(data: imageData) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 400, maxHeight: 300)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-            } else {
-                HStack {
-                    Image(systemName: "photo")
-                    Text("chat.image.invalid", bundle: .main)
-                        .foregroundStyle(.secondary)
+                AttachmentGlassCard {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 400, maxHeight: 300)
+                        .padding(4)
                 }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
+            } else {
+                AttachmentGlassCard {
+                    HStack {
+                        Image(systemName: "photo")
+                        Text("chat.image.invalid", bundle: .main)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                }
             }
         }
     }

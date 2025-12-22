@@ -41,18 +41,8 @@ enum ChatAttachment: Identifiable, Hashable {
 
     var iconName: String {
         switch self {
-        case .file(let url):
-            let ext = url.pathExtension.lowercased()
-            switch ext {
-            case "png", "jpg", "jpeg", "gif", "webp", "heic":
-                return "photo"
-            case "pdf":
-                return "doc.richtext"
-            case "swift", "js", "ts", "py", "rb", "go", "rs":
-                return "doc.text"
-            default:
-                return "doc"
-            }
+        case .file:
+            return "doc"
         case .image:
             return "photo"
         case .reviewComments:
