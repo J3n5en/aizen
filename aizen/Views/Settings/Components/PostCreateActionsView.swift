@@ -605,22 +605,13 @@ struct PostCreateActionsSheet: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Button("Done") {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-
-                Spacer()
-
                 Text("Post-Create Actions")
+                    .font(.title2)
                     .fontWeight(.semibold)
 
                 Spacer()
-
-                Color.clear.frame(width: 50)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 12)
+            .padding()
 
             Divider()
 
@@ -629,8 +620,26 @@ struct PostCreateActionsSheet: View {
                 PostCreateActionsView(repository: repository, showHeader: false)
                     .padding()
             }
+
+            Divider()
+
+            // Footer
+            HStack {
+                Text("Actions run automatically after worktree creation")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Spacer()
+
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
         }
-        .frame(width: 480, height: 400)
+        .frame(width: 500, height: 420)
         .environment(\.managedObjectContext, viewContext)
     }
 }
