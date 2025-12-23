@@ -71,6 +71,17 @@ struct SplitTerminalView: View {
                 persistFocus()
                 applyTitleForFocusedPane()
             }
+            // Trigger focus when tab becomes selected (views are kept alive via opacity)
+            .onChange(of: isSelected) { newValue in
+                if newValue {
+                    // Force focus update by toggling focusedPaneId
+                    let currentFocus = focusedPaneId
+                    focusedPaneId = ""
+                    DispatchQueue.main.async {
+                        focusedPaneId = currentFocus
+                    }
+                }
+            }
             // Only set split actions for the currently selected/visible session
             .focusedSceneValue(\.terminalSplitActions, isSelected ? TerminalSplitActions(
                 splitHorizontal: splitHorizontal,
