@@ -345,10 +345,19 @@ struct PostCreateActionEditorSheet: View {
         let category: FileCategory
 
         enum FileCategory: String, CaseIterable {
-            case environment = "Environment"
-            case ideSettings = "IDE Settings"
-            case config = "Configuration"
-            case other = "Other"
+            case dotfiles = "Dotfiles"
+            case config = "Config"
+            case directories = "Directories"
+            case other = "Other Files"
+
+            var order: Int {
+                switch self {
+                case .dotfiles: return 0
+                case .config: return 1
+                case .directories: return 2
+                case .other: return 3
+                }
+            }
         }
     }
 
@@ -489,17 +498,18 @@ struct PostCreateActionEditorSheet: View {
                 }
             }
 
-            // File browser
-            if !detectedFiles.isEmpty {
+            // File browser - scrollable
+            ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(DetectedFile.FileCategory.allCases, id: \.self) { category in
+                    ForEach(DetectedFile.FileCategory.allCases.sorted(by: { $0.order < $1.order }), id: \.self) { category in
                         let filesInCategory = detectedFiles.filter { $0.category == category }
                         if !filesInCategory.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(category.rawValue)
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundStyle(.secondary)
+                                    .padding(.top, 4)
 
                                 ForEach(filesInCategory) { file in
                                     fileRow(file)
@@ -509,17 +519,10 @@ struct PostCreateActionEditorSheet: View {
                     }
                 }
                 .padding(8)
-                .background(Color(.controlBackgroundColor).opacity(0.5))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else if repositoryPath != nil {
-                HStack {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                    Text("Scanning repository...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
+            .frame(height: 180)
+            .background(Color(.controlBackgroundColor).opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             // Custom pattern input
             HStack {
@@ -538,7 +541,7 @@ struct PostCreateActionEditorSheet: View {
                 .disabled(customPattern.isEmpty)
             }
 
-            Text("e.g., config/*.yml, *.local")
+            Text("e.g., config/*.yml, src/secrets/*")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -588,72 +591,75 @@ struct PostCreateActionEditorSheet: View {
 
     private func scanRepository() {
         guard let repoPath = repositoryPath else { return }
-
-        Task {
-            let files = await detectCopyableFiles(at: repoPath)
-            await MainActor.run {
-                detectedFiles = files
-            }
-        }
+        // Synchronous scan of root directory only - fast even for large repos
+        detectedFiles = scanRootDirectory(at: repoPath)
     }
 
-    private func detectCopyableFiles(at path: String) async -> [DetectedFile] {
+    private func scanRootDirectory(at path: String) -> [DetectedFile] {
         let fm = FileManager.default
         var result: [DetectedFile] = []
 
-        // Common patterns to look for
-        let patterns: [(String, DetectedFile.FileCategory, Bool)] = [
-            // Environment files
-            (".env", .environment, false),
-            (".env.local", .environment, false),
-            (".env.development", .environment, false),
-            (".env.development.local", .environment, false),
-            (".env.production.local", .environment, false),
-            // IDE settings
-            (".vscode", .ideSettings, true),
-            (".idea", .ideSettings, true),
-            // Config files
-            ("config/local.yml", .config, false),
-            ("config/local.json", .config, false),
-            ("config/local.py", .config, false),
-            (".npmrc", .config, false),
-            (".yarnrc", .config, false),
-            ("local.settings.json", .config, false),
-        ]
+        // Files/dirs to always hide
+        let hiddenItems: Set<String> = [".git", ".DS_Store", "node_modules", ".build", "DerivedData"]
 
-        for (pattern, category, isDir) in patterns {
-            let fullPath = (path as NSString).appendingPathComponent(pattern)
+        // Config file extensions
+        let configExtensions: Set<String> = ["yml", "yaml", "json", "toml", "ini", "conf", "config", "xml", "plist"]
+
+        guard let contents = try? fm.contentsOfDirectory(atPath: path) else { return [] }
+
+        for item in contents {
+            // Skip hidden items we don't care about
+            if hiddenItems.contains(item) { continue }
+
+            let fullPath = (path as NSString).appendingPathComponent(item)
             var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: fullPath, isDirectory: &isDirectory) else { continue }
 
-            if fm.fileExists(atPath: fullPath, isDirectory: &isDirectory) {
-                if isDir == isDirectory.boolValue {
-                    result.append(DetectedFile(
-                        id: pattern,
-                        path: isDir ? "\(pattern)/**" : pattern,
-                        name: pattern,
-                        isDirectory: isDir,
-                        category: category
-                    ))
-                }
-            }
+            let isDir = isDirectory.boolValue
+            let category = categorizeFile(name: item, isDirectory: isDir, configExtensions: configExtensions)
+
+            result.append(DetectedFile(
+                id: item,
+                path: isDir ? "\(item)/**" : item,
+                name: item,
+                isDirectory: isDir,
+                category: category
+            ))
         }
 
-        // Also scan for any .env* files
-        if let contents = try? fm.contentsOfDirectory(atPath: path) {
-            for item in contents {
-                if item.hasPrefix(".env") && !result.contains(where: { $0.name == item }) {
-                    result.append(DetectedFile(
-                        id: item,
-                        path: item,
-                        name: item,
-                        isDirectory: false,
-                        category: .environment
-                    ))
-                }
+        // Sort: by category order, then alphabetically within category
+        return result.sorted { lhs, rhs in
+            if lhs.category.order != rhs.category.order {
+                return lhs.category.order < rhs.category.order
             }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private func categorizeFile(name: String, isDirectory: Bool, configExtensions: Set<String>) -> DetectedFile.FileCategory {
+        // Directories
+        if isDirectory {
+            return .directories
         }
 
-        return result.sorted { $0.category.rawValue < $1.category.rawValue }
+        // Dotfiles (hidden files starting with .)
+        if name.hasPrefix(".") {
+            return .dotfiles
+        }
+
+        // Config files by extension
+        let ext = (name as NSString).pathExtension.lowercased()
+        if configExtensions.contains(ext) {
+            return .config
+        }
+
+        // Config files by name pattern
+        let lowerName = name.lowercased()
+        if lowerName.contains("config") || lowerName.contains("settings") || lowerName == "makefile" || lowerName == "dockerfile" {
+            return .config
+        }
+
+        return .other
     }
 
     private var isValid: Bool {
