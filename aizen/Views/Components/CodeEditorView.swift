@@ -24,12 +24,20 @@ struct CodeEditorView: View {
 
     // Editor settings from AppStorage
     @AppStorage("editorTheme") private var editorTheme: String = "Catppuccin Mocha"
+    @AppStorage("editorThemeLight") private var editorThemeLight: String = "Catppuccin Latte"
+    @AppStorage("editorUsePerAppearanceTheme") private var usePerAppearanceTheme = false
     @AppStorage("editorFontFamily") private var editorFontFamily: String = "Menlo"
     @AppStorage("editorFontSize") private var editorFontSize: Double = 12.0
     @AppStorage("editorWrapLines") private var editorWrapLines: Bool = true
     @AppStorage("editorShowMinimap") private var editorShowMinimap: Bool = false
     @AppStorage("editorShowGutter") private var editorShowGutter: Bool = true
     @AppStorage("editorIndentSpaces") private var editorIndentSpaces: Int = 4
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var effectiveThemeName: String {
+        guard usePerAppearanceTheme else { return editorTheme }
+        return colorScheme == .dark ? editorTheme : editorThemeLight
+    }
 
     init(
         content: String,
@@ -49,7 +57,7 @@ struct CodeEditorView: View {
     }
 
     var body: some View {
-        let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
+        let theme = GhosttyThemeParser.loadTheme(named: effectiveThemeName) ?? defaultTheme()
 
         SourceEditor(
             $text,

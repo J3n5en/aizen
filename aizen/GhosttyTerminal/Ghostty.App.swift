@@ -54,11 +54,39 @@ extension Ghostty {
         /// Track active surfaces for config propagation
         private var activeSurfaces: [Ghostty.SurfaceReference] = []
 
+        /// Track last known appearance to detect changes
+        private var lastKnownAppearance: NSAppearance.Name?
+
+        /// Track last known theme to detect changes
+        private var lastKnownTheme: String?
+
+        /// Observer for in-app appearance setting changes
+        private var appearanceSettingObserver: NSObjectProtocol?
+
         // MARK: - Terminal Settings from AppStorage
 
         @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
         @AppStorage("terminalFontSize") private var terminalFontSize = 12.0
         @AppStorage("terminalThemeName") private var terminalThemeName = "Catppuccin Mocha"
+        @AppStorage("terminalThemeNameLight") private var terminalThemeNameLight = "Catppuccin Latte"
+        @AppStorage("terminalUsePerAppearanceTheme") private var usePerAppearanceTheme = false
+        @AppStorage("appearanceMode") private var appearanceMode = "system"
+
+        private var effectiveThemeName: String {
+            guard usePerAppearanceTheme else { return terminalThemeName }
+
+            // Check in-app appearance setting first
+            switch appearanceMode {
+            case "light":
+                return terminalThemeNameLight
+            case "dark":
+                return terminalThemeName
+            default:
+                // System mode - follow actual system appearance
+                let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                return isDark ? terminalThemeName : terminalThemeNameLight
+            }
+        }
 
         // MARK: - Initialization
 
@@ -116,7 +144,58 @@ extension Ghostty {
             self.app = app
             self.readiness = .ready
 
+            // Store initial appearance and theme
+            lastKnownAppearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+            lastKnownTheme = effectiveThemeName
+
+            // Observe system appearance changes via DistributedNotificationCenter
+            DistributedNotificationCenter.default().addObserver(
+                self,
+                selector: #selector(systemAppearanceDidChange),
+                name: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+                object: nil
+            )
+
+            // Observe in-app appearance setting changes
+            appearanceSettingObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.checkAppearanceSettingChange()
+            }
+
             Ghostty.logger.info("Ghostty app initialized successfully")
+        }
+
+        @objc private func systemAppearanceDidChange(_ notification: Notification) {
+            Task { @MainActor in
+                self.handleAppearanceChange()
+            }
+        }
+
+        private func handleAppearanceChange() {
+            guard usePerAppearanceTheme else { return }
+
+            let currentAppearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+            guard currentAppearance != lastKnownAppearance else { return }
+
+            lastKnownAppearance = currentAppearance
+            reloadIfThemeChanged()
+        }
+
+        private func checkAppearanceSettingChange() {
+            guard usePerAppearanceTheme else { return }
+            reloadIfThemeChanged()
+        }
+
+        private func reloadIfThemeChanged() {
+            let newTheme = effectiveThemeName
+            guard newTheme != lastKnownTheme else { return }
+
+            lastKnownTheme = newTheme
+            Ghostty.logger.info("Theme changed, reloading terminal config with theme: \(newTheme)")
+            reloadConfig()
         }
 
         deinit {
@@ -129,6 +208,13 @@ extension Ghostty {
 
         /// Clean up the ghostty app resources
         func cleanup() {
+            DistributedNotificationCenter.default().removeObserver(self)
+
+            if let observer = appearanceSettingObserver {
+                NotificationCenter.default.removeObserver(observer)
+                appearanceSettingObserver = nil
+            }
+
             if let app = self.app {
                 ghostty_app_free(app)
                 self.app = nil
@@ -225,7 +311,7 @@ extension Ghostty {
                 # Cursor
                 cursor-style-blink = true
 
-                theme = \(terminalThemeName)
+                theme = \(effectiveThemeName)
 
                 # Disable audible bell
                 audible-bell = false
@@ -235,7 +321,7 @@ extension Ghostty {
 
                 """
 
-                Ghostty.logger.info("Loading Ghostty theme: \(self.terminalThemeName)")
+                Ghostty.logger.info("Loading Ghostty theme: \(self.effectiveThemeName)")
 
                 try configContent.write(toFile: configFilePath, atomically: true, encoding: .utf8)
 
@@ -249,7 +335,7 @@ extension Ghostty {
                 // Will NOT load user's Ghostty config (com.mitchellh.ghostty) since bundle ID is different
                 ghostty_config_load_default_files(config)
 
-                Ghostty.logger.info("Loaded Aizen terminal settings - Font: \(self.terminalFontName) \(Int(self.terminalFontSize))pt, Theme: \(self.terminalThemeName)")
+                Ghostty.logger.info("Loaded Aizen terminal settings - Font: \(self.terminalFontName) \(Int(self.terminalFontSize))pt, Theme: \(self.effectiveThemeName)")
             } catch {
                 Ghostty.logger.warning("Failed to write config: \(error)")
             }

@@ -27,12 +27,17 @@ class DiffNSRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
-        // Subtle background overlay
-        NSColor.labelColor.withAlphaComponent(0.1).setFill()
+        // Use accent color with appropriate opacity for visibility
+        NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
         bounds.fill()
         // Left border indicator
-        NSColor.secondaryLabelColor.setFill()
+        NSColor.controlAccentColor.setFill()
         NSRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
+    }
+
+    // Prevent automatic text color inversion when selected
+    override var interiorBackgroundStyle: NSView.BackgroundStyle {
+        .normal
     }
 }
 
@@ -139,7 +144,7 @@ class LineCellView: NSTableCellView {
 
     private func setupViews() {
         lineNumBg.wantsLayer = true
-        lineNumBg.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.5).cgColor
+        updateGutterBackground()
         lineNumBg.translatesAutoresizingMaskIntoConstraints = false
 
         [oldNumLabel, newNumLabel].forEach {
@@ -261,6 +266,20 @@ class LineCellView: NSTableCellView {
         if !hasComment {
             commentButton.isHidden = true
         }
+        updateGutterBackground()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateGutterBackground()
+    }
+
+    private func updateGutterBackground() {
+        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let bgColor = isDark
+            ? NSColor.white.withAlphaComponent(0.04)
+            : NSColor.black.withAlphaComponent(0.03)
+        lineNumBg.layer?.backgroundColor = bgColor.cgColor
     }
 
     func configure(

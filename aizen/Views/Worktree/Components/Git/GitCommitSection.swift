@@ -56,7 +56,7 @@ struct GitCommitSection: View {
 
             // Divider
             Rectangle()
-                .fill(Color.black.opacity(0.2))
+                .fill(Color(nsColor: .separatorColor))
                 .frame(width: 1, height: 32)
 
             // Dropdown menu

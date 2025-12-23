@@ -553,10 +553,11 @@ struct GlassPanelModifier: ViewModifier {
 }
 
 struct JobRowSelectionModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
     let isSelected: Bool
 
     func body(content: Content) -> some View {
         content
-            .background(isSelected ? Color.white.opacity(0.1) : Color.clear)
+            .background(isSelected ? (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)) : Color.clear)
     }
 }

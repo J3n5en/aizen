@@ -48,6 +48,7 @@ class GitPanelWindowController: NSWindowController {
             }
         )
         .navigationSubtitle(worktreePath)
+        .modifier(AppearanceModifier())
 
         window.contentView = NSHostingView(rootView: content)
         window.center()

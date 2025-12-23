@@ -36,7 +36,6 @@ struct InlineAutocompleteView: View {
         LiquidGlassCard(
             cornerRadius: 16,
             shadowOpacity: 0.30,
-            tint: .black.opacity(0.16),
             sheenOpacity: 0.55
         ) {
             VStack(alignment: .leading, spacing: 0) {
@@ -157,8 +156,17 @@ private struct AutocompleteHeader: View {
 // MARK: - Row
 
 private struct AutocompleteRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let item: AutocompleteItem
     let isSelected: Bool
+
+    private var selectionFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06)
+    }
+
+    private var selectionStroke: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06)
+    }
 
     var body: some View {
         let selectionShape = RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -187,15 +195,15 @@ private struct AutocompleteRow: View {
         .padding(.vertical, 9)
         .background(
             selectionShape
-                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+                .fill(isSelected ? selectionFill : Color.clear)
                 .overlay {
                     if isSelected {
-                        selectionShape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                        selectionShape.strokeBorder(selectionStroke, lineWidth: 1)
                     }
                 }
         )
         .overlay {
-            if isSelected {
+            if isSelected && colorScheme == .dark {
                 LinearGradient(
                     colors: [
                         .white.opacity(0.12),

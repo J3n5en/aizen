@@ -9,6 +9,8 @@ import SwiftUI
 
 struct EditorSettingsView: View {
     @AppStorage("editorTheme") private var editorTheme: String = "Catppuccin Mocha"
+    @AppStorage("editorThemeLight") private var editorThemeLight: String = "Catppuccin Latte"
+    @AppStorage("editorUsePerAppearanceTheme") private var usePerAppearanceTheme = false
     @AppStorage("editorFontFamily") private var editorFontFamily: String = "Menlo"
     @AppStorage("editorFontSize") private var editorFontSize: Double = 12.0
     @AppStorage("diffFontSize") private var diffFontSize: Double = 11.0
@@ -30,12 +32,30 @@ struct EditorSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("Theme", selection: $editorTheme) {
-                    ForEach(availableThemes, id: \.self) { theme in
-                        Text(theme).tag(theme)
+                Toggle("Use different themes for Light/Dark mode", isOn: $usePerAppearanceTheme)
+
+                if usePerAppearanceTheme {
+                    Picker("Dark Mode Theme", selection: $editorTheme) {
+                        ForEach(availableThemes, id: \.self) { theme in
+                            Text(theme).tag(theme)
+                        }
                     }
+                    .disabled(availableThemes.isEmpty)
+
+                    Picker("Light Mode Theme", selection: $editorThemeLight) {
+                        ForEach(availableThemes, id: \.self) { theme in
+                            Text(theme).tag(theme)
+                        }
+                    }
+                    .disabled(availableThemes.isEmpty)
+                } else {
+                    Picker("Theme", selection: $editorTheme) {
+                        ForEach(availableThemes, id: \.self) { theme in
+                            Text(theme).tag(theme)
+                        }
+                    }
+                    .disabled(availableThemes.isEmpty)
                 }
-                .disabled(availableThemes.isEmpty)
             } header: {
                 Text("Theme")
             }
@@ -118,6 +138,8 @@ struct EditorSettingsView: View {
             Section {
                 Button("Reset to Defaults") {
                     editorTheme = "Catppuccin Mocha"
+                    editorThemeLight = "Catppuccin Latte"
+                    usePerAppearanceTheme = false
                     editorFontFamily = "Menlo"
                     editorFontSize = 12.0
                     diffFontSize = 11.0

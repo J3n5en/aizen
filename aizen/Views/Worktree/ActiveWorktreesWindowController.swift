@@ -24,6 +24,7 @@ final class ActiveWorktreesWindowManager {
 
         let contentView = ActiveWorktreesView()
             .environment(\.managedObjectContext, context)
+            .modifier(AppearanceModifier())
 
         let hostingController = NSHostingController(rootView: contentView)
         let window = NSWindow(contentViewController: hostingController)

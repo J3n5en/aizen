@@ -334,7 +334,7 @@ struct WorkspaceSidebarView: View {
                 Button {
                     SettingsWindowManager.shared.show()
                 } label: {
-                    Image(systemName: "gearshape")
+                    Image(systemName: "gear")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)

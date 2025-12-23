@@ -93,6 +93,7 @@ struct aizenApp: App {
             RootView(context: persistenceController.container.viewContext)
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
                 .environmentObject(ghosttyApp)
+                .modifier(AppearanceModifier())
                 .task {
                     LicenseManager.shared.start()
                 }
@@ -189,6 +190,7 @@ struct aizenApp: App {
         }
 
         let aboutView = AboutView()
+            .modifier(AppearanceModifier())
         let hostingController = NSHostingController(rootView: aboutView)
 
         let window = NSWindow(contentViewController: hostingController)

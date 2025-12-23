@@ -133,7 +133,7 @@ struct SplitTerminalView: View {
                 SplitView(
                     split.direction == .horizontal ? .horizontal : .vertical,
                     ratioBinding,
-                    dividerColor: Color(nsColor: .black),
+                    dividerColor: Color(nsColor: .separatorColor),
                     left: { renderNode(split.left) },
                     right: { renderNode(split.right) }
                 )

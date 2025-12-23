@@ -22,12 +22,25 @@ final class PaletteInteractionState: ObservableObject {
 }
 
 struct LiquidGlassCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var cornerRadius: CGFloat = 24
     var shadowOpacity: Double = 0.45
-    var tint: Color = .black.opacity(0.22)
     var sheenOpacity: Double = 0.22
     var scrimOpacity: Double = 0.12
     @ViewBuilder var content: () -> Content
+
+    private var tint: Color {
+        colorScheme == .dark ? .black.opacity(0.22) : .white.opacity(0.6)
+    }
+
+    private var strokeColor: Color {
+        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.08)
+    }
+
+    private var scrimColor: Color {
+        colorScheme == .dark ? .black.opacity(scrimOpacity) : .white.opacity(scrimOpacity * 0.5)
+    }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -35,10 +48,10 @@ struct LiquidGlassCard<Content: View>: View {
         content()
             .background { glassBackground(shape: shape) }
             .clipShape(shape)
-        .overlay {
-            shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(shadowOpacity), radius: 40, x: 0, y: 22)
+            .overlay {
+                shape.strokeBorder(strokeColor, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(colorScheme == .dark ? shadowOpacity : shadowOpacity * 0.3), radius: 40, x: 0, y: 22)
     }
 
     @ViewBuilder
@@ -53,10 +66,10 @@ struct LiquidGlassCard<Content: View>: View {
                 .allowsHitTesting(false)
 
                 shape
-                    .fill(.black.opacity(scrimOpacity))
+                    .fill(scrimColor)
                     .allowsHitTesting(false)
 
-                if sheenOpacity > 0 {
+                if sheenOpacity > 0 && colorScheme == .dark {
                     LinearGradient(
                         colors: [
                             .white.opacity(0.28 * sheenOpacity),
@@ -79,7 +92,12 @@ struct LiquidGlassCard<Content: View>: View {
 }
 
 struct KeyCap: View {
+    @Environment(\.colorScheme) private var colorScheme
     let text: String
+
+    private var strokeColor: Color {
+        colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08)
+    }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -104,7 +122,7 @@ struct KeyCap: View {
             }
         }
         .overlay {
-            shape.strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            shape.strokeBorder(strokeColor, lineWidth: 1)
         }
         .accessibilityLabel(Text(text))
     }

@@ -107,47 +107,13 @@ struct SettingsView: View {
                     .padding(.vertical, 10)
             }
         } detail: {
-            Group {
-                switch selection {
-                case .general:
-                    GeneralSettingsView(defaultEditor: $defaultEditor)
-                        .navigationTitle("General")
-                        .navigationSubtitle("Default apps, layout, and toolbar")
-                case .pro:
-                    AizenProSettingsView(licenseManager: licenseManager)
-                        .navigationTitle("Aizen Pro")
-                        .navigationSubtitle("License and billing")
-                case .git:
-                    GitSettingsView()
-                        .navigationTitle("Git")
-                        .navigationSubtitle("Branch templates and preferences")
-                case .terminal:
-                    TerminalSettingsView(
-                        fontName: $terminalFontName,
-                        fontSize: $terminalFontSize
-                    )
-                    .navigationTitle("Terminal")
-                    .navigationSubtitle("Font, theme, and session settings")
-                case .editor:
-                    EditorSettingsView()
-                        .navigationTitle("Editor")
-                        .navigationSubtitle("Theme, font, and display options")
-                case .agent(let agentId):
-                    if let index = agents.firstIndex(where: { $0.id == agentId }) {
-                        AgentDetailView(
-                            metadata: $agents[index],
-                            isDefault: agentId == defaultACPAgent,
-                            onSetDefault: { defaultACPAgent = agentId }
-                        )
-                        .navigationTitle(agents[index].name)
-                        .navigationSubtitle("Agent Configuration")
+            detailView
+                .toolbar {
+                    // Ensure toolbar area is always rendered for consistent .unified style
+                    ToolbarItem(placement: .primaryAction) {
+                        Color.clear.frame(width: 0, height: 0)
                     }
-                case .none:
-                    GeneralSettingsView(defaultEditor: $defaultEditor)
-                        .navigationTitle("General")
-                        .navigationSubtitle("Default apps, layout, and toolbar")
                 }
-            }
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 750, minHeight: 500)
@@ -167,6 +133,49 @@ struct SettingsView: View {
                 },
                 onCancel: {}
             )
+        }
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selection {
+        case .general:
+            GeneralSettingsView(defaultEditor: $defaultEditor)
+                .navigationTitle("General")
+                .navigationSubtitle("Default apps, layout, and toolbar")
+        case .pro:
+            AizenProSettingsView(licenseManager: licenseManager)
+                .navigationTitle("Aizen Pro")
+                .navigationSubtitle("License and billing")
+        case .git:
+            GitSettingsView()
+                .navigationTitle("Git")
+                .navigationSubtitle("Branch templates and preferences")
+        case .terminal:
+            TerminalSettingsView(
+                fontName: $terminalFontName,
+                fontSize: $terminalFontSize
+            )
+            .navigationTitle("Terminal")
+            .navigationSubtitle("Font, theme, and session settings")
+        case .editor:
+            EditorSettingsView()
+                .navigationTitle("Editor")
+                .navigationSubtitle("Theme, font, and display options")
+        case .agent(let agentId):
+            if let index = agents.firstIndex(where: { $0.id == agentId }) {
+                AgentDetailView(
+                    metadata: $agents[index],
+                    isDefault: agentId == defaultACPAgent,
+                    onSetDefault: { defaultACPAgent = agentId }
+                )
+                .navigationTitle(agents[index].name)
+                .navigationSubtitle("Agent Configuration")
+            }
+        case .none:
+            GeneralSettingsView(defaultEditor: $defaultEditor)
+                .navigationTitle("General")
+                .navigationSubtitle("Default apps, layout, and toolbar")
         }
     }
 

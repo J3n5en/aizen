@@ -220,7 +220,6 @@ struct CommandPaletteContent: View {
     var body: some View {
         LiquidGlassCard(
             shadowOpacity: 0,
-            tint: .black.opacity(0.30),
             sheenOpacity: 0.28,
             scrimOpacity: 0.14
         ) {

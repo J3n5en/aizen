@@ -330,6 +330,14 @@ struct HighlightedTextContentView: View {
 
     @State private var highlightedText: AttributedString?
     @AppStorage("editorTheme") private var editorTheme: String = "Catppuccin Mocha"
+    @AppStorage("editorThemeLight") private var editorThemeLight: String = "Catppuccin Latte"
+    @AppStorage("editorUsePerAppearanceTheme") private var usePerAppearanceTheme = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var effectiveThemeName: String {
+        guard usePerAppearanceTheme else { return editorTheme }
+        return colorScheme == .dark ? editorTheme : editorThemeLight
+    }
 
     private let highlighter = TreeSitterHighlighter()
 
@@ -420,7 +428,7 @@ struct HighlightedTextContentView: View {
     private func performHighlight() async {
         let (code, _) = parsedContent
         do {
-            let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
+            let theme = GhosttyThemeParser.loadTheme(named: effectiveThemeName) ?? defaultTheme()
             let attributed = try await highlighter.highlightCode(
                 code,
                 language: detectedLanguage,

@@ -13,6 +13,8 @@ struct TerminalSettingsView: View {
     @Binding var fontName: String
     @Binding var fontSize: Double
     @AppStorage("terminalThemeName") private var themeName = "Catppuccin Mocha"
+    @AppStorage("terminalThemeNameLight") private var themeNameLight = "Catppuccin Latte"
+    @AppStorage("terminalUsePerAppearanceTheme") private var usePerAppearanceTheme = false
     @AppStorage("terminalNotificationsEnabled") private var terminalNotificationsEnabled = true
     @AppStorage("terminalProgressEnabled") private var terminalProgressEnabled = true
     @AppStorage("terminalSessionPersistence") private var sessionPersistence = false
@@ -81,12 +83,30 @@ struct TerminalSettingsView: View {
             }
 
             Section(LocalizedStringKey("settings.terminal.theme.section")) {
-                Picker(LocalizedStringKey("settings.terminal.theme.picker"), selection: $themeName) {
-                    ForEach(themeNames, id: \.self) { theme in
-                        Text(theme).tag(theme)
+                Toggle("Use different themes for Light/Dark mode", isOn: $usePerAppearanceTheme)
+
+                if usePerAppearanceTheme {
+                    Picker("Dark Mode Theme", selection: $themeName) {
+                        ForEach(themeNames, id: \.self) { theme in
+                            Text(theme).tag(theme)
+                        }
                     }
+                    .disabled(themeNames.isEmpty)
+
+                    Picker("Light Mode Theme", selection: $themeNameLight) {
+                        ForEach(themeNames, id: \.self) { theme in
+                            Text(theme).tag(theme)
+                        }
+                    }
+                    .disabled(themeNames.isEmpty)
+                } else {
+                    Picker(LocalizedStringKey("settings.terminal.theme.picker"), selection: $themeName) {
+                        ForEach(themeNames, id: \.self) { theme in
+                            Text(theme).tag(theme)
+                        }
+                    }
+                    .disabled(themeNames.isEmpty)
                 }
-                .disabled(themeNames.isEmpty)
             }
 
             Section("Terminal Behavior") {

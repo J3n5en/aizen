@@ -12,8 +12,21 @@ import CodeEditLanguages
 // MARK: - Attachment Glass Card
 
 struct AttachmentGlassCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     var cornerRadius: CGFloat = 12
     @ViewBuilder var content: () -> Content
+
+    private var strokeColor: Color {
+        colorScheme == .dark ? .white.opacity(0.12) : .black.opacity(0.08)
+    }
+
+    private var tintColor: Color {
+        colorScheme == .dark ? .black.opacity(0.18) : .white.opacity(0.5)
+    }
+
+    private var scrimColor: Color {
+        colorScheme == .dark ? .black.opacity(0.08) : .white.opacity(0.04)
+    }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -22,7 +35,7 @@ struct AttachmentGlassCard<Content: View>: View {
             .background { glassBackground(shape: shape) }
             .clipShape(shape)
             .overlay {
-                shape.strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                shape.strokeBorder(strokeColor, lineWidth: 0.5)
             }
     }
 
@@ -33,12 +46,12 @@ struct AttachmentGlassCard<Content: View>: View {
                 GlassEffectContainer {
                     shape
                         .fill(.white.opacity(0.001))
-                        .glassEffect(.regular.tint(.black.opacity(0.18)), in: shape)
+                        .glassEffect(.regular.tint(tintColor), in: shape)
                 }
                 .allowsHitTesting(false)
 
                 shape
-                    .fill(.black.opacity(0.08))
+                    .fill(scrimColor)
                     .allowsHitTesting(false)
             }
         } else {
@@ -118,6 +131,14 @@ struct ACPResourceView: View {
 
     @State private var highlightedText: AttributedString?
     @AppStorage("editorTheme") private var editorTheme: String = "Catppuccin Mocha"
+    @AppStorage("editorThemeLight") private var editorThemeLight: String = "Catppuccin Latte"
+    @AppStorage("editorUsePerAppearanceTheme") private var usePerAppearanceTheme = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var effectiveThemeName: String {
+        guard usePerAppearanceTheme else { return editorTheme }
+        return colorScheme == .dark ? editorTheme : editorThemeLight
+    }
 
     private let highlighter = TreeSitterHighlighter()
 
@@ -180,7 +201,7 @@ struct ACPResourceView: View {
 
     private func performHighlight(_ text: String) async {
         do {
-            let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
+            let theme = GhosttyThemeParser.loadTheme(named: effectiveThemeName) ?? defaultTheme()
 
             let attributed = try await highlighter.highlightCode(
                 text,

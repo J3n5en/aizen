@@ -17,6 +17,14 @@ struct CodeBlockView: View {
     @State private var showCopyConfirmation = false
     @State private var highlightedText: AttributedString?
     @AppStorage("editorTheme") private var editorTheme: String = "Catppuccin Mocha"
+    @AppStorage("editorThemeLight") private var editorThemeLight: String = "Catppuccin Latte"
+    @AppStorage("editorUsePerAppearanceTheme") private var usePerAppearanceTheme = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var effectiveThemeName: String {
+        guard usePerAppearanceTheme else { return editorTheme }
+        return colorScheme == .dark ? editorTheme : editorThemeLight
+    }
 
     var body: some View {
       
@@ -89,7 +97,7 @@ struct CodeBlockView: View {
     }
 
     private var highlightTaskKey: String {
-        "\(code.hashValue)-\(language ?? "none")-\(editorTheme)-\(isStreaming ? "stream" : "final")"
+        "\(code.hashValue)-\(language ?? "none")-\(effectiveThemeName)-\(isStreaming ? "stream" : "final")"
     }
 
     private func performHighlight(codeSnapshot: String) async {
@@ -101,7 +109,7 @@ struct CodeBlockView: View {
         }
 
         // Load theme
-        let theme = GhosttyThemeParser.loadTheme(named: editorTheme) ?? defaultTheme()
+        let theme = GhosttyThemeParser.loadTheme(named: effectiveThemeName) ?? defaultTheme()
 
         // Use shared highlighting queue (limits concurrent highlighting, provides caching)
         if let attributed = await HighlightingQueue.shared.highlight(
