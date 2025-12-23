@@ -386,11 +386,7 @@ struct PostCreateActionEditorSheet: View {
                     }
                 }
 
-                Section {
-                    configEditorForType
-                } header: {
-                    Text(selectedType.actionDescription)
-                }
+                configSectionsForType
             }
             .formStyle(.grouped)
 
@@ -424,59 +420,75 @@ struct PostCreateActionEditorSheet: View {
     }
 
     @ViewBuilder
-    private var configEditorForType: some View {
+    private var configSectionsForType: some View {
         switch selectedType {
         case .copyFiles:
-            copyFilesEditor
+            copyFilesSections
 
         case .runCommand:
-            TextField("Command", text: $command)
-                .textFieldStyle(.roundedBorder)
+            Section {
+                TextField("Command", text: $command)
+                    .textFieldStyle(.roundedBorder)
 
-            Picker("Run in", selection: $workingDirectory) {
-                ForEach(WorkingDirectory.allCases, id: \.self) { dir in
-                    Text(dir.displayName).tag(dir)
+                Picker("Run in", selection: $workingDirectory) {
+                    ForEach(WorkingDirectory.allCases, id: \.self) { dir in
+                        Text(dir.displayName).tag(dir)
+                    }
                 }
+            } header: {
+                Text(selectedType.actionDescription)
             }
 
         case .symlink:
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    TextField("Path relative to worktree root", text: $symlinkSource)
-                        .textFieldStyle(.roundedBorder)
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        TextField("Path relative to worktree root", text: $symlinkSource)
+                            .textFieldStyle(.roundedBorder)
 
-                    Button {
-                        selectSymlinkSource()
-                    } label: {
-                        Image(systemName: "folder")
+                        Button {
+                            selectSymlinkSource()
+                        } label: {
+                            Image(systemName: "folder")
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
-                }
 
-                if !symlinkSource.isEmpty {
-                    Text("Will create: \(effectiveSymlinkTarget)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if !symlinkSource.isEmpty {
+                        Text("Will create: \(effectiveSymlinkTarget)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+            } header: {
+                Text(selectedType.actionDescription)
             }
 
         case .customScript:
-            TextEditor(text: $customScript)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 100)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(.separatorColor), lineWidth: 1)
-                )
+            Section {
+                TextEditor(text: $customScript)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 100)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color(.separatorColor), lineWidth: 1)
+                    )
+            } header: {
+                Text(selectedType.actionDescription)
+            }
         }
     }
 
-    // MARK: - Copy Files Editor
+    // MARK: - Copy Files Sections
 
-    private var copyFilesEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Selected files as chips
-            if !selectedFiles.isEmpty {
+    @ViewBuilder
+    private var copyFilesSections: some View {
+        // Selected files section
+        Section {
+            if selectedFiles.isEmpty {
+                Text("No files selected")
+                    .foregroundStyle(.secondary)
+            } else {
                 FlowLayout(spacing: 6) {
                     ForEach(Array(selectedFiles).sorted(), id: \.self) { file in
                         HStack(spacing: 4) {
@@ -497,8 +509,12 @@ struct PostCreateActionEditorSheet: View {
                     }
                 }
             }
+        } header: {
+            Text("Files to Copy")
+        }
 
-            // File browser - scrollable
+        // File browser section
+        Section {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(DetectedFile.FileCategory.allCases.sorted(by: { $0.order < $1.order }), id: \.self) { category in
@@ -520,13 +536,20 @@ struct PostCreateActionEditorSheet: View {
                 }
                 .padding(8)
             }
-            .frame(height: 180)
+            .frame(height: 160)
             .background(Color(.controlBackgroundColor).opacity(0.5))
             .clipShape(RoundedRectangle(cornerRadius: 8))
+        } header: {
+            Text("Repository Files")
+        }
+        .onAppear {
+            scanRepository()
+        }
 
-            // Custom pattern input
+        // Custom pattern section
+        Section {
             HStack {
-                TextField("Add custom pattern", text: $customPattern)
+                TextField("Pattern", text: $customPattern)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
                         addCustomPattern()
@@ -535,18 +558,16 @@ struct PostCreateActionEditorSheet: View {
                 Button {
                     addCustomPattern()
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(Color.accentColor)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 .disabled(customPattern.isEmpty)
             }
-
-            Text("e.g., config/*.yml, src/secrets/*")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .onAppear {
-            scanRepository()
+        } header: {
+            Text("Custom Patterns")
+        } footer: {
+            Text("Add glob patterns for files in subdirectories (e.g., config/*.yml)")
         }
     }
 
