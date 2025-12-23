@@ -196,10 +196,14 @@ struct UserBubble<Background: View>: View {
     private let hPadding: CGFloat = 16
     private let vPadding: CGFloat = 12
 
-    private var hasImageAttachments: Bool {
+    private var hasAttachments: Bool {
         contentBlocks.contains { block in
-            if case .image = block { return true }
-            return false
+            switch block {
+            case .image, .resource, .resourceLink:
+                return true
+            default:
+                return false
+            }
         }
     }
 
@@ -221,13 +225,11 @@ struct UserBubble<Background: View>: View {
                     }
                 }
 
-            // Image attachments outside bubble
-            if hasImageAttachments {
+            // Attachments outside bubble
+            if hasAttachments {
                 VStack(alignment: .trailing, spacing: 4) {
                     ForEach(Array(contentBlocks.enumerated()), id: \.offset) { _, block in
-                        if case .image(let imageContent) = block {
-                            ACPImageView(data: imageContent.data, mimeType: imageContent.mimeType)
-                        }
+                        attachmentView(for: block)
                     }
                 }
             }
@@ -256,6 +258,30 @@ struct UserBubble<Background: View>: View {
             .multilineTextAlignment(.trailing)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: maxContentWidth, alignment: .trailing)
+    }
+
+    @ViewBuilder
+    private func attachmentView(for block: ContentBlock) -> some View {
+        switch block {
+        case .image(let imageContent):
+            ACPImageView(data: imageContent.data, mimeType: imageContent.mimeType)
+        case .resource(let resourceContent):
+            if let uri = resourceContent.resource.uri {
+                UserAttachmentChip(
+                    name: URL(string: uri)?.lastPathComponent ?? "File",
+                    uri: uri,
+                    mimeType: nil
+                )
+            }
+        case .resourceLink(let linkContent):
+            UserAttachmentChip(
+                name: linkContent.name,
+                uri: linkContent.uri,
+                mimeType: linkContent.mimeType
+            )
+        default:
+            EmptyView()
+        }
     }
 
     private var measureUnwrappedWidth: some View {

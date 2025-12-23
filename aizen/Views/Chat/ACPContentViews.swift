@@ -79,6 +79,36 @@ struct ACPImageView: View {
     }
 }
 
+// MARK: - User Attachment Chip (for displaying file attachments in user messages)
+
+struct UserAttachmentChip: View {
+    let name: String
+    let uri: String
+    let mimeType: String?
+
+    private var filePath: String {
+        if uri.hasPrefix("file://") {
+            return URL(string: uri)?.path ?? uri
+        }
+        return uri
+    }
+
+    var body: some View {
+        AttachmentGlassCard(cornerRadius: 10) {
+            HStack(spacing: 6) {
+                FileIconView(path: filePath, size: 16)
+
+                Text(name)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+        }
+    }
+}
+
 // MARK: - Resource Content View
 
 struct ACPResourceView: View {
