@@ -2,7 +2,7 @@
 
 [![macOS](https://img.shields.io/badge/macOS-13.5+-black?logo=apple)](https://aizen.win)
 [![Swift](https://img.shields.io/badge/Swift-5.0+-F05138?logo=swift&logoColor=white)](https://swift.org)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL%203.0-blue)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/eKW7GNesuS)
 [![Twitter](https://img.shields.io/badge/Twitter-@aizenwin-1DA1F2?logo=x&logoColor=white)](https://x.com/aizenwin)
 
@@ -157,6 +157,6 @@ aizen/
 
 ## License
 
-Apache License 2.0
+GNU General Public License v3.0
 
 Copyright © 2025 Vivy Technologies Co., Limited
