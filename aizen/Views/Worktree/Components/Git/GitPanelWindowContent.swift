@@ -55,6 +55,7 @@ struct GitPanelWindowContent: View {
     @StateObject private var reviewManager = ReviewSessionManager()
     @StateObject private var workflowService = WorkflowService()
     @State private var selectedWorkflowForTrigger: Workflow?
+    @State private var workflowServiceInitialized: Bool = false
 
     @AppStorage("editorFontFamily") private var editorFontFamily: String = "Menlo"
     @AppStorage("diffFontSize") private var diffFontSize: Double = 11.0
@@ -104,13 +105,17 @@ struct GitPanelWindowContent: View {
             reviewManager.load(for: worktreePath)
             updateChangedFilesCache()
             setupGitWatcher()
-
-            // Initialize workflow service
-            Task {
-                await workflowService.configure(
-                    repoPath: worktreePath,
-                    branch: gitStatus.currentBranch ?? "main"
-                )
+        }
+        .onChange(of: selectedTab) { newTab in
+            // Lazy-load workflow service when workflows tab is selected
+            if newTab == .workflows && !workflowServiceInitialized {
+                workflowServiceInitialized = true
+                Task {
+                    await workflowService.configure(
+                        repoPath: worktreePath,
+                        branch: gitStatus.currentBranch ?? "main"
+                    )
+                }
             }
         }
         .onDisappear {
