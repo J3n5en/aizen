@@ -76,12 +76,14 @@ extension ChatSessionViewModel {
         for entry in entries {
             switch entry.type {
             case .message(let msg):
-                // When we hit a new agent message, group any buffered tool calls first
-                if msg.role == .agent && !toolCallBuffer.isEmpty {
+                // Group buffered tool calls when:
+                // 1. A new agent message arrives (normal turn end)
+                // 2. A user message arrives (agent was interrupted)
+                if !toolCallBuffer.isEmpty && (msg.role == .agent || msg.role == .user) {
                     let group = createGroupFromBuffer(
                         toolCalls: toolCallBuffer,
                         messageId: lastAgentMessageId,
-                        isCompletedTurn: true
+                        isCompletedTurn: msg.role == .agent
                     )
                     items.append(.toolCallGroup(group))
                     toolCallBuffer = []
