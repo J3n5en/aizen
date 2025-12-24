@@ -14,6 +14,7 @@ struct TurnSummary: Identifiable {
     let id: String
     let timestamp: Date
     let duration: TimeInterval
+    let toolCallCount: Int
     let fileChanges: [FileChangeSummary]
 
     /// Formatted duration string

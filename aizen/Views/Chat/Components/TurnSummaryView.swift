@@ -18,6 +18,14 @@ struct TurnSummaryView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.green)
 
+            // Tool call count
+            Text("\(summary.toolCallCount) tool call\(summary.toolCallCount == 1 ? "" : "s")")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            Text("·")
+                .foregroundStyle(.tertiary)
+
             // Duration
             Text(summary.formattedDuration)
                 .font(.system(size: 10))

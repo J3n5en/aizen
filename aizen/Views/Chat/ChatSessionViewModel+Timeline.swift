@@ -73,6 +73,8 @@ extension ChatSessionViewModel {
         var toolCallBuffer: [ToolCall] = []
         var lastAgentMessageId: String?
 
+        var pendingSummary: TurnSummary?
+
         for entry in entries {
             switch entry.type {
             case .message(let msg):
@@ -87,16 +89,27 @@ extension ChatSessionViewModel {
                     )
                     items.append(.toolCallGroup(group))
 
-                    // Add turn summary after this group
                     let summary = createTurnSummary(from: toolCallBuffer)
-                    if summary.fileChanges.count > 0 || summary.duration > 0 {
-                        items.append(.turnSummary(summary))
+                    if summary.toolCallCount > 0 {
+                        if msg.role == .user {
+                            // User interrupted: summary before user message
+                            items.append(.turnSummary(summary))
+                        } else {
+                            // Agent message: save summary to add after message
+                            pendingSummary = summary
+                        }
                     }
 
                     toolCallBuffer = []
                 }
 
                 items.append(.message(msg))
+
+                // Add pending summary after agent message
+                if msg.role == .agent, let summary = pendingSummary {
+                    items.append(.turnSummary(summary))
+                    pendingSummary = nil
+                }
 
                 if msg.role == .agent {
                     lastAgentMessageId = msg.id
@@ -125,7 +138,7 @@ extension ChatSessionViewModel {
 
                 // Add turn summary for final group
                 let summary = createTurnSummary(from: toolCallBuffer)
-                if summary.fileChanges.count > 0 || summary.duration > 0 {
+                if summary.toolCallCount > 0 {
                     items.append(.turnSummary(summary))
                 }
             }
@@ -198,6 +211,7 @@ extension ChatSessionViewModel {
             id: UUID().uuidString,
             timestamp: endTime,
             duration: duration,
+            toolCallCount: toolCalls.count,
             fileChanges: Array(fileChanges.values).sorted { $0.path < $1.path }
         )
     }

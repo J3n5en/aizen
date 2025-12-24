@@ -111,6 +111,7 @@ struct ChatMessageList: View {
                         switch item {
                         case .message(let message):
                             MessageBubbleView(message: message, agentName: message.role == .agent ? selectedAgent : nil)
+                                .id(message.id)
                                 .transition(message.isComplete ? .opacity.combined(with: .scale(scale: 0.95)) : .identity)
                         case .toolCall(let toolCall):
                             // Skip child tool calls (rendered inside parent Task)
@@ -126,6 +127,7 @@ struct ChatMessageList: View {
                                     onOpenInEditor: onOpenFileInEditor,
                                     childToolCalls: children
                                 )
+                                .id(toolCall.id)
                                 .transition(toolCall.status == .pending ? .opacity.combined(with: .move(edge: .leading)) : .identity)
                             }
                         case .toolCallGroup(let group):
@@ -137,7 +139,7 @@ struct ChatMessageList: View {
                                 onOpenInEditor: onOpenFileInEditor,
                                 childToolCallsProvider: childToolCallsProvider
                             )
-                            .id(item.id)
+                            .id(group.id)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
 
                         case .turnSummary(let summary):
@@ -146,7 +148,7 @@ struct ChatMessageList: View {
                                 onOpenInEditor: onOpenFileInEditor
                             )
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(item.id)
+                            .id(summary.id)
                             .transition(.opacity)
                         }
                     }
@@ -165,7 +167,9 @@ struct ChatMessageList: View {
                 .padding(.vertical, 12)
                 .padding(.horizontal, 20)
                 .transaction { transaction in
-                    if !allowAnimations {
+                    // Disable animations during initial load or when processing
+                    // to prevent empty screen issues during rapid updates
+                    if !allowAnimations || isProcessing {
                         transaction.disablesAnimations = true
                     }
                 }
@@ -203,7 +207,7 @@ struct ChatMessageList: View {
     @State private var scrollViewHeight: CGFloat = 0
     @State private var contentHeight: CGFloat = 0
     @State private var scrollOffset: CGFloat = 0
-    @State private var lastReportedNearBottom: Bool = true
+    @State private var lastReportedNearBottom: Bool? = nil
 
     private func updateScrollState(offset: CGFloat? = nil, content: CGFloat? = nil, viewport: CGFloat? = nil) {
         if let offset = offset { scrollOffset = offset }
@@ -216,7 +220,9 @@ struct ChatMessageList: View {
         let distanceFromBottom = contentHeight + scrollOffset - scrollViewHeight
         let isNearBottom = distanceFromBottom <= 50 || contentHeight <= scrollViewHeight
 
-        if isNearBottom != lastReportedNearBottom {
+        // Always report on first calculation (when lastReportedNearBottom is nil)
+        // or when the state changes
+        if lastReportedNearBottom == nil || isNearBottom != lastReportedNearBottom {
             lastReportedNearBottom = isNearBottom
             onScrollPositionChange(isNearBottom)
         }
