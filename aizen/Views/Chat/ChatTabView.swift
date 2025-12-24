@@ -37,7 +37,7 @@ struct ChatTabView: View {
         self._sessions = FetchRequest(
             sortDescriptors: [NSSortDescriptor(keyPath: \ChatSession.createdAt, ascending: true)],
             predicate: predicate,
-            animation: .default
+            animation: nil
         )
     }
 
@@ -47,20 +47,19 @@ struct ChatTabView: View {
         } else {
             ZStack {
                 ForEach(cachedSessions) { session in
+                    let isSelected = selectedSessionId == session.id
                     ChatSessionView(
                         worktree: worktree,
                         session: session,
                         sessionManager: sessionManager,
                         viewContext: viewContext
                     )
-                    .id(session.objectID)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .opacity(selectedSessionId == session.id ? 1 : 0)
-                    .allowsHitTesting(selectedSessionId == session.id)
-                    .zIndex(selectedSessionId == session.id ? 1 : 0)
+                    .opacity(isSelected ? 1 : 0)
+                    .allowsHitTesting(isSelected)
+                    .zIndex(isSelected ? 1 : 0)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: selectedSessionId)
             .onAppear {
                 syncSelectionAndCache()
             }
