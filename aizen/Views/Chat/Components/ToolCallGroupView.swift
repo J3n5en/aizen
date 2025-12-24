@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct ToolCallGroupView: View {
     let group: ToolCallGroup
@@ -14,8 +15,6 @@ struct ToolCallGroupView: View {
     var onOpenDetails: ((ToolCall) -> Void)? = nil
     var onOpenInEditor: ((String) -> Void)? = nil
     var childToolCallsProvider: (String) -> [ToolCall] = { _ in [] }
-    /// Whether this group is from a completed turn (not current streaming turn)
-    var isCompletedTurn: Bool = false
 
     @State private var isExpanded: Bool = false
 
@@ -30,6 +29,50 @@ struct ToolCallGroupView: View {
         .background(backgroundColor)
         .cornerRadius(3)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded = true
+                }
+            } label: {
+                Label("Expand All", systemImage: "arrow.down.right.and.arrow.up.left")
+            }
+
+            if let output = copyableOutput {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(output, forType: .string)
+                } label: {
+                    Label("Copy All Outputs", systemImage: "doc.on.doc")
+                }
+            }
+        }
+    }
+
+    // MARK: - Copyable Output
+
+    private var copyableOutput: String? {
+        var outputs: [String] = []
+        for toolCall in group.toolCalls {
+            var toolOutputs: [String] = []
+            for content in toolCall.content {
+                switch content {
+                case .content(let block):
+                    if case .text(let textContent) = block {
+                        toolOutputs.append(textContent.text)
+                    }
+                case .diff(let diff):
+                    toolOutputs.append(diff.newText)
+                case .terminal:
+                    break
+                }
+            }
+            if !toolOutputs.isEmpty {
+                outputs.append("# \(toolCall.title)\n\(toolOutputs.joined(separator: "\n"))")
+            }
+        }
+        let result = outputs.joined(separator: "\n\n---\n\n")
+        return result.isEmpty ? nil : result
     }
 
     // MARK: - Header
@@ -53,22 +96,6 @@ struct ToolCallGroupView: View {
                 Text(group.summaryText)
                     .font(.system(size: 11))
                     .foregroundColor(.primary)
-
-                // Duration badge (only show for completed turns)
-                if isCompletedTurn, let duration = group.formattedDuration {
-                    Text(duration)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color(.controlBackgroundColor).opacity(0.5))
-                        .cornerRadius(3)
-                }
-
-                // File change chips (only show for completed turns with changes)
-                if isCompletedTurn && group.hasFileChanges {
-                    fileChangeChips
-                }
 
                 Spacer(minLength: 4)
 
@@ -98,23 +125,6 @@ struct ToolCallGroupView: View {
             }
             if group.toolKinds.count > 4 {
                 Text("+\(group.toolKinds.count - 4)")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    // MARK: - File Change Chips
-
-    @ViewBuilder
-    private var fileChangeChips: some View {
-        let changes = group.fileChanges.prefix(3)
-        HStack(spacing: 4) {
-            ForEach(Array(changes)) { change in
-                FileChangeChip(change: change, onOpenInEditor: onOpenInEditor)
-            }
-            if group.fileChanges.count > 3 {
-                Text("+\(group.fileChanges.count - 3)")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
             }

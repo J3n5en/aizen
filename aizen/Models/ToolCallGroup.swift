@@ -33,8 +33,10 @@ struct FileChangeSummary: Identifiable {
 // MARK: - Tool Call Group
 
 struct ToolCallGroup: Identifiable {
-    let iterationId: String
-    var id: String { iterationId }
+    /// Unique ID for this group (generated, not iterationId to avoid duplicates)
+    let groupId: String
+    let iterationId: String?
+    var id: String { groupId }
     var toolCalls: [ToolCall]
     let timestamp: Date
 
@@ -48,7 +50,10 @@ struct ToolCallGroup: Identifiable {
     /// Whether this group is from a completed turn (has subsequent message or streaming ended)
     var isCompletedTurn: Bool = false
 
-    init(iterationId: String, toolCalls: [ToolCall], messageId: String? = nil, isCompletedTurn: Bool = false) {
+    init(iterationId: String?, toolCalls: [ToolCall], messageId: String? = nil, isCompletedTurn: Bool = false) {
+        // Generate unique ID from tool call IDs to ensure consistency across rebuilds
+        let toolIds = toolCalls.map { $0.id }.sorted().joined(separator: "-")
+        self.groupId = "group-\(toolIds.hashValue)"
         self.iterationId = iterationId
         self.toolCalls = toolCalls.sorted { $0.timestamp < $1.timestamp }
         self.timestamp = toolCalls.first?.timestamp ?? Date.distantPast

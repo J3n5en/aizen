@@ -6,6 +6,7 @@
 
 import SwiftUI
 import Foundation
+import AppKit
 import CodeEditLanguages
 import CodeEditSourceEditor
 
@@ -131,6 +132,62 @@ struct ToolCallView: View {
         .background(backgroundColor)
         .cornerRadius(3)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            if onOpenDetails != nil {
+                Button {
+                    onOpenDetails?(toolCall)
+                } label: {
+                    Label("Open Details", systemImage: "arrow.up.right.square")
+                }
+            }
+
+            if let output = copyableOutput {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(output, forType: .string)
+                } label: {
+                    Label("Copy Output", systemImage: "doc.on.doc")
+                }
+            }
+
+            if let path = filePath {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(path, forType: .string)
+                } label: {
+                    Label("Copy Path", systemImage: "link")
+                }
+
+                if onOpenInEditor != nil {
+                    Divider()
+                    Button {
+                        onOpenInEditor?(path)
+                    } label: {
+                        Label("Open in Editor", systemImage: "doc.text")
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Copyable Output
+
+    private var copyableOutput: String? {
+        var outputs: [String] = []
+        for content in toolCall.content {
+            switch content {
+            case .content(let block):
+                if case .text(let textContent) = block {
+                    outputs.append(textContent.text)
+                }
+            case .diff(let diff):
+                outputs.append(diff.newText)
+            case .terminal:
+                break // Terminal output handled separately
+            }
+        }
+        let result = outputs.joined(separator: "\n\n")
+        return result.isEmpty ? nil : result
     }
 
     // MARK: - File Path Extraction

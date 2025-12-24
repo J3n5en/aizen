@@ -7,10 +7,36 @@
 
 import Foundation
 
+// MARK: - Turn Summary
+
+/// Summary shown at the end of a completed turn
+struct TurnSummary: Identifiable {
+    let id: String
+    let timestamp: Date
+    let duration: TimeInterval
+    let fileChanges: [FileChangeSummary]
+
+    /// Formatted duration string
+    var formattedDuration: String {
+        if duration < 1 {
+            return "<1s"
+        } else if duration < 60 {
+            return "\(Int(duration))s"
+        } else {
+            let minutes = Int(duration) / 60
+            let seconds = Int(duration) % 60
+            return "\(minutes)m \(seconds)s"
+        }
+    }
+}
+
+// MARK: - Timeline Item
+
 enum TimelineItem {
     case message(MessageItem)
     case toolCall(ToolCall)
     case toolCallGroup(ToolCallGroup)
+    case turnSummary(TurnSummary)
 
     /// Dynamic id that changes when content changes - used by SwiftUI ForEach to force re-renders
     var id: String {
@@ -25,6 +51,8 @@ enum TimelineItem {
             // Include count and status so SwiftUI re-renders when group changes
             let statusKey = group.hasFailed ? "failed" : (group.isInProgress ? "progress" : "done")
             return "group-\(group.id)-\(group.toolCalls.count)-\(statusKey)"
+        case .turnSummary(let summary):
+            return "summary-\(summary.id)"
         }
     }
 
@@ -37,6 +65,8 @@ enum TimelineItem {
             return tool.id
         case .toolCallGroup(let group):
             return "group-\(group.id)"
+        case .turnSummary(let summary):
+            return "summary-\(summary.id)"
         }
     }
 
@@ -48,6 +78,8 @@ enum TimelineItem {
             return tool.timestamp
         case .toolCallGroup(let group):
             return group.timestamp
+        case .turnSummary(let summary):
+            return summary.timestamp
         }
     }
 }

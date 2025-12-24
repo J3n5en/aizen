@@ -135,11 +135,18 @@ struct ChatMessageList: View {
                                 agentSession: agentSession,
                                 onOpenDetails: { tapped in onToolTap(tapped) },
                                 onOpenInEditor: onOpenFileInEditor,
-                                childToolCallsProvider: childToolCallsProvider,
-                                isCompletedTurn: group.isCompletedTurn
+                                childToolCallsProvider: childToolCallsProvider
                             )
                             .id(item.id)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
+
+                        case .turnSummary(let summary):
+                            TurnSummaryView(
+                                summary: summary,
+                                onOpenInEditor: onOpenFileInEditor
+                            )
+                            .id(item.id)
+                            .transition(.opacity)
                         }
                     }
 

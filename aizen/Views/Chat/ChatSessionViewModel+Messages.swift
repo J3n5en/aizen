@@ -18,6 +18,9 @@ extension ChatSessionViewModel {
         // Allow sending if we have text OR attachments
         guard !messageText.isEmpty || !messageAttachments.isEmpty else { return }
 
+        // Check if agent is currently processing - if so, stop it first
+        let wasProcessing = isProcessing
+
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             inputText = ""
             attachments = []
@@ -26,11 +29,24 @@ extension ChatSessionViewModel {
             isNearBottom = true
         }
 
+        // Clear persisted draft since message is being sent
+        if let sessionId = session.id {
+            sessionManager.clearDraftInputText(for: sessionId)
+        }
+
         Task {
             do {
                 guard let agentSession = self.currentAgentSession else {
                     throw NSError(domain: "ChatSessionView", code: -1, userInfo: [NSLocalizedDescriptionKey: "No agent session"])
                 }
+
+                // If agent was processing, cancel the current prompt first
+                if wasProcessing {
+                    await agentSession.cancelCurrentPrompt()
+                    // Brief delay to allow cancellation to propagate
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+
                 guard let worktreePath = self.worktree.path, !worktreePath.isEmpty else {
                     throw NSError(domain: "ChatSessionView", code: -4, userInfo: [NSLocalizedDescriptionKey: "Missing worktree path"])
                 }

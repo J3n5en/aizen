@@ -48,9 +48,15 @@ struct MessageBubbleView: View {
         }
     }
 
+    private var shouldShowAgentMessage: Bool {
+        guard message.role == .agent else { return true }
+        let hasContent = !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasContent || !message.isComplete
+    }
+
     var body: some View {
         VStack(alignment: alignment, spacing: 4) {
-            if message.role == .agent, let identifier = agentName {
+            if message.role == .agent, let identifier = agentName, shouldShowAgentMessage {
                 HStack(spacing: 4) {
                     AgentIconView(agent: identifier, size: 16)
                     Text(agentDisplayName.capitalized)
@@ -75,31 +81,34 @@ struct MessageBubbleView: View {
                 }
             }
 
-            // Agent message
+            // Agent message - hide if content is empty and message is complete
             else if message.role == .agent {
-                HStack {
-                    VStack(alignment: .leading, spacing: 6) {
-                        MessageContentView(content: message.content, isStreaming: !message.isComplete)
+                if shouldShowAgentMessage {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MessageContentView(content: message.content, isStreaming: !message.isComplete)
 
-                        HStack(spacing: 8) {
-                            Text(formatTimestamp(message.timestamp))
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
-
-                            if let executionTime = message.executionTime {
-                                Text(formatExecutionTime(executionTime))
+                            HStack(spacing: 8) {
+                                Text(formatTimestamp(message.timestamp))
                                     .font(.system(size: 10))
                                     .foregroundStyle(.tertiary)
+
+                                if let executionTime = message.executionTime {
+                                    Text(formatExecutionTime(executionTime))
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.tertiary)
+                                }
                             }
                         }
-                    }
 
-                    Spacer(minLength: 60)
+                        Spacer(minLength: 60)
+                    }
                 }
+                // Empty agent message - render nothing
             }
 
             // System message
-            else {
+            else if message.role == .system {
                 Text(message.content)
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)

@@ -48,65 +48,57 @@ extension ChatSessionViewModel {
     }
 
     /// Rebuild timeline with tool call grouping by message boundaries
-    /// Tool calls are grouped once a new agent message arrives after them
+    /// Flow: Message 1 → [Tool calls grouped] → Message 2 → [Tool calls grouped] → ...
     func rebuildTimelineWithGrouping(isStreaming: Bool) {
-        // Get sorted agent messages to establish boundaries
-        let agentMessages = messages.filter { $0.role == .agent }.sorted { $0.timestamp < $1.timestamp }
-
         // Filter tool calls (skip children, they render inside parent)
         let topLevelCalls = toolCalls.filter { $0.parentToolCallId == nil }
-            .sorted { $0.timestamp < $1.timestamp }
 
-        // Build timeline with grouped tool calls
+        // Create merged timeline entries sorted by timestamp
+        enum EntryType {
+            case message(MessageItem)
+            case toolCall(ToolCall)
+        }
+
+        var entries: [(type: EntryType, timestamp: Date)] = []
+        for msg in messages {
+            entries.append((.message(msg), msg.timestamp))
+        }
+        for call in topLevelCalls {
+            entries.append((.toolCall(call), call.timestamp))
+        }
+        entries.sort { $0.timestamp < $1.timestamp }
+
+        // Build timeline: group tool calls when next agent message arrives
         var items: [TimelineItem] = []
         var toolCallBuffer: [ToolCall] = []
-        var lastMessageId: String?
+        var lastAgentMessageId: String?
 
-        // Process messages in chronological order
-        let sortedMessages = messages.sorted { $0.timestamp < $1.timestamp }
-
-        for message in sortedMessages {
-            // Before adding this message, check if we have buffered tool calls to group
-            if message.role == .agent && !toolCallBuffer.isEmpty {
-                // Group all tool calls between the last message and this one
-                // This is a completed turn - there's a subsequent message
-                let group = createGroupFromBuffer(
-                    toolCalls: toolCallBuffer,
-                    messageId: lastMessageId,
-                    isCompletedTurn: true
-                )
-                items.append(.toolCallGroup(group))
-                toolCallBuffer = []
-            }
-
-            // Add the message
-            items.append(.message(message))
-
-            if message.role == .agent {
-                lastMessageId = message.id
-            }
-
-            // Collect tool calls that occurred after this message and before the next
-            let messageTime = message.timestamp
-            let nextAgentMessage = agentMessages.first { $0.timestamp > messageTime }
-            let nextMessageTime = nextAgentMessage?.timestamp ?? Date.distantFuture
-
-            let callsForThisSegment = topLevelCalls.filter {
-                $0.timestamp > messageTime && $0.timestamp < nextMessageTime
-            }
-
-            // If streaming and these are current (no next message yet), keep ungrouped
-            if isStreaming && nextAgentMessage == nil && !callsForThisSegment.isEmpty {
-                for call in callsForThisSegment {
-                    items.append(.toolCall(call))
+        for entry in entries {
+            switch entry.type {
+            case .message(let msg):
+                // When we hit a new agent message, group any buffered tool calls first
+                if msg.role == .agent && !toolCallBuffer.isEmpty {
+                    let group = createGroupFromBuffer(
+                        toolCalls: toolCallBuffer,
+                        messageId: lastAgentMessageId,
+                        isCompletedTurn: true
+                    )
+                    items.append(.toolCallGroup(group))
+                    toolCallBuffer = []
                 }
-            } else if !callsForThisSegment.isEmpty {
-                // Buffer for grouping when next message arrives
-                toolCallBuffer.append(contentsOf: callsForThisSegment)
+
+                items.append(.message(msg))
+
+                if msg.role == .agent {
+                    lastAgentMessageId = msg.id
+                }
+
+            case .toolCall(let call):
+                toolCallBuffer.append(call)
             }
         }
 
-        // Handle remaining buffered tool calls at the end
+        // Handle remaining tool calls after last message
         if !toolCallBuffer.isEmpty {
             if isStreaming {
                 // Still streaming - show individual tool calls
@@ -114,27 +106,93 @@ extension ChatSessionViewModel {
                     items.append(.toolCall(call))
                 }
             } else {
-                // Turn ended - create final group (completed since streaming ended)
+                // Turn ended - create final group
                 let group = createGroupFromBuffer(
                     toolCalls: toolCallBuffer,
-                    messageId: lastMessageId,
+                    messageId: lastAgentMessageId,
                     isCompletedTurn: true
                 )
                 items.append(.toolCallGroup(group))
             }
         }
 
-        // Handle tool calls that occurred before any message
-        let firstMessageTime = sortedMessages.first?.timestamp ?? Date.distantFuture
-        let earlyToolCalls = topLevelCalls.filter { $0.timestamp < firstMessageTime }
-        for call in earlyToolCalls {
-            // Insert at beginning, ungrouped
-            items.insert(.toolCall(call), at: 0)
+        // Add turn summary at end when turn is complete (not streaming)
+        if !isStreaming && !topLevelCalls.isEmpty {
+            let summary = createTurnSummary(from: topLevelCalls)
+            if summary.fileChanges.count > 0 || summary.duration > 0 {
+                items.append(.turnSummary(summary))
+            }
         }
 
-        // Sort by timestamp to ensure correct order
-        timelineItems = items.sorted { $0.timestamp < $1.timestamp }
+        timelineItems = items
         rebuildTimelineIndex()
+    }
+
+    /// Create turn summary from all tool calls in the turn
+    private func createTurnSummary(from toolCalls: [ToolCall]) -> TurnSummary {
+        // Calculate duration from first to last tool call
+        let timestamps = toolCalls.map { $0.timestamp }
+        let startTime = timestamps.min() ?? Date()
+        let endTime = timestamps.max() ?? Date()
+        let duration = endTime.timeIntervalSince(startTime)
+
+        // Collect file changes from all edit tool calls
+        var fileChanges: [String: FileChangeSummary] = [:]
+
+        for call in toolCalls where call.kind == .edit {
+            let filePath: String?
+            if let path = call.locations?.first?.path {
+                filePath = path
+            } else if !call.title.isEmpty && call.title.contains("/") {
+                filePath = call.title
+            } else {
+                filePath = nil
+            }
+
+            guard let path = filePath else { continue }
+
+            var linesAdded = 0
+            var linesRemoved = 0
+            var isNewFile = false
+
+            for content in call.content {
+                if case .diff(let diff) = content {
+                    isNewFile = diff.oldText == nil || diff.oldText?.isEmpty == true
+                    let oldLines = diff.oldText?.components(separatedBy: "\n").count ?? 0
+                    let newLines = diff.newText.components(separatedBy: "\n").count
+
+                    if isNewFile {
+                        linesAdded += newLines
+                    } else {
+                        if newLines > oldLines {
+                            linesAdded += newLines - oldLines
+                        } else {
+                            linesRemoved += oldLines - newLines
+                        }
+                    }
+                }
+            }
+
+            if var existing = fileChanges[path] {
+                existing.linesAdded += linesAdded
+                existing.linesRemoved += linesRemoved
+                fileChanges[path] = existing
+            } else {
+                fileChanges[path] = FileChangeSummary(
+                    path: path,
+                    isNew: isNewFile,
+                    linesAdded: linesAdded,
+                    linesRemoved: linesRemoved
+                )
+            }
+        }
+
+        return TurnSummary(
+            id: UUID().uuidString,
+            timestamp: endTime,
+            duration: duration,
+            fileChanges: Array(fileChanges.values).sorted { $0.path < $1.path }
+        )
     }
 
     /// Create a tool call group from buffered calls

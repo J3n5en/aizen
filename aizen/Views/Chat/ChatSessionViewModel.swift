@@ -84,6 +84,7 @@ class ChatSessionViewModel: ObservableObject {
     @Published var isNearBottom: Bool = true
     private var cancellables = Set<AnyCancellable>()
     private var notificationCancellables = Set<AnyCancellable>()
+    private var wasStreaming: Bool = false  // Track streaming state transitions
     let logger = Logger.forCategory("ChatSession")
 
     // MARK: - Computed Properties
@@ -272,7 +273,7 @@ class ChatSessionViewModel: ObservableObject {
 
     private func prefillInputTextIfNeeded() {
         guard let sessionId = session.id,
-              let pendingText = sessionManager.consumePendingInputText(for: sessionId) else {
+              let pendingText = sessionManager.getDraftInputText(for: sessionId) else {
             return
         }
 
@@ -402,7 +403,19 @@ class ChatSessionViewModel: ObservableObject {
     }
 
     private func setupInputTextObserver() {
-        // Input text observer - autocomplete is now handled by cursor change callbacks in CustomTextEditor
+        // Persist draft text as user types (debounced to avoid excessive writes)
+        $inputText
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] text in
+                guard let self = self, let sessionId = self.session.id else { return }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    self.sessionManager.clearDraftInputText(for: sessionId)
+                } else {
+                    self.sessionManager.setPendingInputText(text, for: sessionId)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func setupSessionObservers(session: AgentSession) {
@@ -530,8 +543,11 @@ class ChatSessionViewModel: ObservableObject {
                 guard let self = self else { return }
                 self.isProcessing = isStreaming
 
-                // When streaming ends, rebuild timeline with grouping
-                if !isStreaming {
+                // Only rebuild when streaming actually ends (transitions from true to false)
+                let streamingEnded = self.wasStreaming && !isStreaming
+                self.wasStreaming = isStreaming
+
+                if streamingEnded {
                     Task { @MainActor in
                         // Delay to ensure all tool calls are synced
                         try? await Task.sleep(for: .milliseconds(150))

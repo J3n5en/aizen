@@ -125,6 +125,16 @@ class ChatSessionManager: ObservableObject {
         return pendingInputText.removeValue(forKey: chatSessionId)
     }
 
+    /// Get draft input text without consuming it (for tab switching)
+    func getDraftInputText(for chatSessionId: UUID) -> String? {
+        return pendingInputText[chatSessionId]
+    }
+
+    /// Clear draft input text (call after message is sent)
+    func clearDraftInputText(for chatSessionId: UUID) {
+        pendingInputText.removeValue(forKey: chatSessionId)
+    }
+
     // MARK: - Pending Attachments
 
     func setPendingAttachments(_ attachments: [ChatAttachment], for chatSessionId: UUID) {
