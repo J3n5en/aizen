@@ -119,18 +119,37 @@ actor AgentTerminalDelegate {
         outputByteLimit: Int?
     ) async throws -> CreateTerminalResponse {
         // Determine executable and final args
-        var executable = command
-        var finalArgs = args ?? []
+        var executablePath: String
+        var finalArgs: [String]
 
-        // If args is empty/nil but command contains spaces/quotes, parse the command string
-        if (args == nil || args?.isEmpty == true) && (command.contains(" ") || command.contains("\"")) {
-            let (parsedExecutable, parsedArgs) = try parseCommandString(command)
-            executable = parsedExecutable
-            finalArgs = parsedArgs
+        // Check if command contains shell operators that require shell interpretation
+        let shellOperators = ["|", "&&", "||", ";", ">", ">>", "<", "$(", "`", "&"]
+        let needsShell = shellOperators.contains { command.contains($0) }
+
+        if needsShell {
+            // Execute through shell to handle pipes, redirections, etc.
+            executablePath = "/bin/sh"
+            if let args = args, !args.isEmpty {
+                // If args provided separately, join command + args
+                finalArgs = ["-c", ([command] + args).joined(separator: " ")]
+            } else {
+                finalArgs = ["-c", command]
+            }
+        } else if args == nil || args?.isEmpty == true {
+            // No args provided - check if command contains spaces/quotes
+            if command.contains(" ") || command.contains("\"") {
+                let (parsedExecutable, parsedArgs) = try parseCommandString(command)
+                executablePath = try resolveExecutablePath(parsedExecutable)
+                finalArgs = parsedArgs
+            } else {
+                executablePath = try resolveExecutablePath(command)
+                finalArgs = []
+            }
+        } else {
+            // Args provided separately
+            executablePath = try resolveExecutablePath(command)
+            finalArgs = args ?? []
         }
-
-        // Resolve executable path
-        let executablePath = try resolveExecutablePath(executable)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -195,7 +214,7 @@ actor AgentTerminalDelegate {
 
     /// Get output from a terminal process
     func handleTerminalOutput(terminalId: TerminalId, sessionId: String) async throws -> TerminalOutputResponse {
-        guard let state = terminals[terminalId.value] else {
+        guard var state = terminals[terminalId.value] else {
             throw TerminalError.terminalNotFound(terminalId.value)
         }
 
@@ -203,7 +222,12 @@ actor AgentTerminalDelegate {
             throw TerminalError.terminalReleased(terminalId.value)
         }
 
-        let output = state.outputBuffer
+        // Always drain available output synchronously to avoid race with async handlers
+        // This ensures we capture all data that's been read but not yet appended
+        drainAvailableOutput(terminalId: terminalId.value, process: state.process)
+        // Re-fetch state after draining
+        state = terminals[terminalId.value] ?? state
+
         let exitStatus: TerminalExitStatus?
         if state.process.isRunning {
             exitStatus = nil
@@ -216,7 +240,7 @@ actor AgentTerminalDelegate {
         }
 
         return TerminalOutputResponse(
-            output: output,
+            output: state.outputBuffer,
             exitStatus: exitStatus,
             truncated: state.wasTruncated,
             _meta: nil
@@ -353,13 +377,10 @@ actor AgentTerminalDelegate {
     func getOutput(terminalId: TerminalId) -> String? {
         // First check active terminals
         if let state = terminals[terminalId.value] {
-            // If process exited, drain any remaining output first
-            if !state.process.isRunning {
-                drainRemainingOutput(terminalId: terminalId.value, process: state.process)
-                // Re-fetch state after draining
-                return terminals[terminalId.value]?.outputBuffer ?? state.outputBuffer
-            }
-            return state.outputBuffer
+            // Always drain available output to capture any pending data
+            drainAvailableOutput(terminalId: terminalId.value, process: state.process)
+            // Re-fetch state after draining
+            return terminals[terminalId.value]?.outputBuffer ?? state.outputBuffer
         }
         // Then check released terminals cache
         return releasedOutputs[terminalId.value]?.output
@@ -370,7 +391,28 @@ actor AgentTerminalDelegate {
         return terminals[terminalId.value]?.process.isRunning ?? false
     }
 
-    /// Drain remaining output when process has exited (non-destructive)
+    /// Drain available output without removing handlers (safe for running processes)
+    /// Uses availableData which is non-blocking and returns immediately
+    private func drainAvailableOutput(terminalId: String, process: Process) {
+        // Drain stdout non-blocking
+        if let outputPipe = process.standardOutput as? Pipe {
+            let handle = outputPipe.fileHandleForReading
+            let data = handle.availableData
+            if !data.isEmpty, let output = String(data: data, encoding: .utf8) {
+                appendOutput(terminalId: terminalId, output: output)
+            }
+        }
+        // Drain stderr non-blocking
+        if let errorPipe = process.standardError as? Pipe {
+            let handle = errorPipe.fileHandleForReading
+            let data = handle.availableData
+            if !data.isEmpty, let output = String(data: data, encoding: .utf8) {
+                appendOutput(terminalId: terminalId, output: output)
+            }
+        }
+    }
+
+    /// Drain remaining output when process has exited (removes handlers)
     private func drainRemainingOutput(terminalId: String, process: Process) {
         // Drain stdout
         if let outputPipe = process.standardOutput as? Pipe {
