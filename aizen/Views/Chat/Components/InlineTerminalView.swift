@@ -71,9 +71,12 @@ struct InlineTerminalView: View {
     private func startLoading() {
         // Cancel any existing task before starting new one
         loadTask?.cancel()
-        
+
         loadTask = Task { [weak agentSession] in
             guard let session = agentSession else { return }
+
+            var exitedIterations = 0
+            let gracePeriodIterations = 3 // Continue polling 3 more times after exit
 
             // Poll for output with cancellation support
             for _ in 0..<120 { // 60 seconds max
@@ -92,8 +95,13 @@ struct InlineTerminalView: View {
                     }
                 }
 
-                if !running && !terminalOutput.isEmpty {
-                    break
+                // If process exited, use grace period to catch any remaining output
+                if !running {
+                    exitedIterations += 1
+                    // Exit after grace period OR if we have output
+                    if exitedIterations >= gracePeriodIterations || !terminalOutput.isEmpty {
+                        break
+                    }
                 }
 
                 try? await Task.sleep(nanoseconds: 500_000_000)

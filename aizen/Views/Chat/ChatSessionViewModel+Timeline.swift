@@ -47,57 +47,131 @@ extension ChatSessionViewModel {
         rebuildTimelineIndex()
     }
 
-    /// Rebuild timeline with tool call grouping for completed turns
+    /// Rebuild timeline with tool call grouping by message boundaries
+    /// Tool calls are grouped once a new agent message arrives after them
     func rebuildTimelineWithGrouping(isStreaming: Bool) {
-        let currentIterationId = currentAgentSession?.currentIterationId
+        // Get sorted agent messages to establish boundaries
+        let agentMessages = messages.filter { $0.role == .agent }.sorted { $0.timestamp < $1.timestamp }
 
-        // Group tool calls by iterationId
-        var groupsByIteration: [String: [ToolCall]] = [:]
-        var ungroupedCalls: [ToolCall] = []
+        // Filter tool calls (skip children, they render inside parent)
+        let topLevelCalls = toolCalls.filter { $0.parentToolCallId == nil }
+            .sorted { $0.timestamp < $1.timestamp }
 
-        for call in toolCalls {
-            // Skip child tool calls (they're rendered inside their parent)
-            guard call.parentToolCallId == nil else { continue }
+        // Build timeline with grouped tool calls
+        var items: [TimelineItem] = []
+        var toolCallBuffer: [ToolCall] = []
+        var lastMessageId: String?
 
-            if let iterationId = call.iterationId {
-                let isCurrentIteration = iterationId == currentIterationId
-                if isStreaming && isCurrentIteration {
-                    // Current turn during streaming - keep individual
-                    ungroupedCalls.append(call)
-                } else {
-                    groupsByIteration[iterationId, default: []].append(call)
+        // Process messages in chronological order
+        let sortedMessages = messages.sorted { $0.timestamp < $1.timestamp }
+
+        for message in sortedMessages {
+            // Before adding this message, check if we have buffered tool calls to group
+            if message.role == .agent && !toolCallBuffer.isEmpty {
+                // Group all tool calls between the last message and this one
+                // This is a completed turn - there's a subsequent message
+                let group = createGroupFromBuffer(
+                    toolCalls: toolCallBuffer,
+                    messageId: lastMessageId,
+                    isCompletedTurn: true
+                )
+                items.append(.toolCallGroup(group))
+                toolCallBuffer = []
+            }
+
+            // Add the message
+            items.append(.message(message))
+
+            if message.role == .agent {
+                lastMessageId = message.id
+            }
+
+            // Collect tool calls that occurred after this message and before the next
+            let messageTime = message.timestamp
+            let nextAgentMessage = agentMessages.first { $0.timestamp > messageTime }
+            let nextMessageTime = nextAgentMessage?.timestamp ?? Date.distantFuture
+
+            let callsForThisSegment = topLevelCalls.filter {
+                $0.timestamp > messageTime && $0.timestamp < nextMessageTime
+            }
+
+            // If streaming and these are current (no next message yet), keep ungrouped
+            if isStreaming && nextAgentMessage == nil && !callsForThisSegment.isEmpty {
+                for call in callsForThisSegment {
+                    items.append(.toolCall(call))
                 }
-            } else {
-                // No iteration ID - keep individual
-                ungroupedCalls.append(call)
+            } else if !callsForThisSegment.isEmpty {
+                // Buffer for grouping when next message arrives
+                toolCallBuffer.append(contentsOf: callsForThisSegment)
             }
         }
 
-        // Build timeline items
-        var items: [TimelineItem] = messages.map { .message($0) }
-
-        // Add grouped tool calls
-        for (iterationId, calls) in groupsByIteration where !calls.isEmpty {
-            let group = ToolCallGroup(iterationId: iterationId, toolCalls: calls)
-            items.append(.toolCallGroup(group))
+        // Handle remaining buffered tool calls at the end
+        if !toolCallBuffer.isEmpty {
+            if isStreaming {
+                // Still streaming - show individual tool calls
+                for call in toolCallBuffer {
+                    items.append(.toolCall(call))
+                }
+            } else {
+                // Turn ended - create final group (completed since streaming ended)
+                let group = createGroupFromBuffer(
+                    toolCalls: toolCallBuffer,
+                    messageId: lastMessageId,
+                    isCompletedTurn: true
+                )
+                items.append(.toolCallGroup(group))
+            }
         }
 
-        // Add ungrouped tool calls
-        for call in ungroupedCalls {
-            items.append(.toolCall(call))
+        // Handle tool calls that occurred before any message
+        let firstMessageTime = sortedMessages.first?.timestamp ?? Date.distantFuture
+        let earlyToolCalls = topLevelCalls.filter { $0.timestamp < firstMessageTime }
+        for call in earlyToolCalls {
+            // Insert at beginning, ungrouped
+            items.insert(.toolCall(call), at: 0)
         }
 
-        // Sort by timestamp
+        // Sort by timestamp to ensure correct order
         timelineItems = items.sorted { $0.timestamp < $1.timestamp }
         rebuildTimelineIndex()
     }
 
+    /// Create a tool call group from buffered calls
+    private func createGroupFromBuffer(toolCalls: [ToolCall], messageId: String?, isCompletedTurn: Bool) -> ToolCallGroup {
+        // Use first call's iterationId or generate one
+        let iterationId = toolCalls.first?.iterationId ?? UUID().uuidString
+        return ToolCallGroup(
+            iterationId: iterationId,
+            toolCalls: toolCalls,
+            messageId: messageId,
+            isCompletedTurn: isCompletedTurn
+        )
+    }
+
     /// Sync messages incrementally - update existing or insert new
+    /// When a new agent message is added, triggers timeline rebuild to group preceding tool calls
     func syncMessages(_ newMessages: [MessageItem]) {
         let newIds = Set(newMessages.map { $0.id })
         let addedIds = newIds.subtracting(previousMessageIds)
         let removedIds = previousMessageIds.subtracting(newIds)
         let hasStructuralChanges = !addedIds.isEmpty || !removedIds.isEmpty
+
+        // Check if any newly added messages are agent messages (triggers grouping)
+        let newAgentMessageAdded = newMessages.contains { msg in
+            addedIds.contains(msg.id) && msg.role == .agent
+        }
+
+        // If a new agent message arrived, rebuild with grouping to collapse previous tool calls
+        if newAgentMessageAdded {
+            let isStreaming = currentAgentSession?.isStreaming ?? false
+            withAnimation(.easeInOut(duration: 0.2)) {
+                rebuildTimelineWithGrouping(isStreaming: isStreaming)
+            }
+            previousMessageIds = newIds
+            return
+        }
+
         var didMutate = false
 
         let updateBlock = { [self] in

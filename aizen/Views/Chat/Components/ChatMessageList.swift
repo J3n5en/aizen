@@ -135,7 +135,8 @@ struct ChatMessageList: View {
                                 agentSession: agentSession,
                                 onOpenDetails: { tapped in onToolTap(tapped) },
                                 onOpenInEditor: onOpenFileInEditor,
-                                childToolCallsProvider: childToolCallsProvider
+                                childToolCallsProvider: childToolCallsProvider,
+                                isCompletedTurn: group.isCompletedTurn
                             )
                             .id(item.id)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))

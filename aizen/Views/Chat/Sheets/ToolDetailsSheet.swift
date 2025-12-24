@@ -214,6 +214,9 @@ struct TerminalOutputPreview: View {
     private func loadOutput() async {
         guard let session = agentSession else { return }
 
+        var exitedIterations = 0
+        let gracePeriodIterations = 3 // Continue polling 3 more times after exit
+
         // Poll for output updates
         for _ in 0..<60 { // Poll for up to 30 seconds
             let newOutput = await session.getTerminalOutput(terminalId: terminalId) ?? ""
@@ -224,8 +227,13 @@ struct TerminalOutputPreview: View {
                 isRunning = running
             }
 
+            // If process exited, use grace period to catch any remaining output
             if !running {
-                break
+                exitedIterations += 1
+                // Exit after grace period OR if we have output
+                if exitedIterations >= gracePeriodIterations || !newOutput.isEmpty {
+                    break
+                }
             }
 
             try? await Task.sleep(nanoseconds: 500_000_000) // 500ms

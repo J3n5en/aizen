@@ -59,14 +59,46 @@ actor AgentTerminalDelegate {
 
     // MARK: - Private Cleanup
 
+    /// Drain remaining data from a pipe synchronously
+    private func drainPipe(_ pipe: Pipe, terminalId: String) {
+        let handle = pipe.fileHandleForReading
+
+        // Disable handler first to avoid race
+        handle.readabilityHandler = nil
+
+        // Drain any remaining data synchronously
+        // Use throwing API since handle may already be closed by readabilityHandler
+        do {
+            while true {
+                // readToEnd returns nil at EOF, throws if handle is closed
+                guard let data = try handle.read(upToCount: 65536), !data.isEmpty else {
+                    break
+                }
+                if let output = String(data: data, encoding: .utf8) {
+                    appendOutput(terminalId: terminalId, output: output)
+                }
+            }
+        } catch {
+            // File handle already closed, nothing to drain
+        }
+    }
+
     /// Clean up pipe handlers to prevent file handle leaks
-    private func cleanupProcessPipes(_ process: Process) {
+    private func cleanupProcessPipes(_ process: Process, terminalId: String? = nil) {
         if let outputPipe = process.standardOutput as? Pipe {
-            outputPipe.fileHandleForReading.readabilityHandler = nil
+            if let id = terminalId {
+                drainPipe(outputPipe, terminalId: id)
+            } else {
+                outputPipe.fileHandleForReading.readabilityHandler = nil
+            }
             try? outputPipe.fileHandleForReading.close()
         }
         if let errorPipe = process.standardError as? Pipe {
-            errorPipe.fileHandleForReading.readabilityHandler = nil
+            if let id = terminalId {
+                drainPipe(errorPipe, terminalId: id)
+            } else {
+                errorPipe.fileHandleForReading.readabilityHandler = nil
+            }
             try? errorPipe.fileHandleForReading.close()
         }
     }
@@ -108,13 +140,14 @@ actor AgentTerminalDelegate {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         }
 
+        // Always use user's shell environment as base, then merge agent-provided vars
+        var envDict = ShellEnvironment.loadUserShellEnvironment()
         if let envVars = env {
-            var envDict = [String: String]()
             for envVar in envVars {
                 envDict[envVar.name] = envVar.value
             }
-            process.environment = envDict
         }
+        process.environment = envDict
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -192,7 +225,7 @@ actor AgentTerminalDelegate {
 
     /// Wait for a terminal process to exit
     func handleTerminalWaitForExit(terminalId: TerminalId, sessionId: String) async throws -> WaitForExitResponse {
-        guard var state = terminals[terminalId.value] else {
+        guard let state = terminals[terminalId.value] else {
             throw TerminalError.terminalNotFound(terminalId.value)
         }
 
@@ -267,8 +300,11 @@ actor AgentTerminalDelegate {
             state.process.waitUntilExit()
         }
 
-        // Clean up pipe handlers to prevent leaks
-        cleanupProcessPipes(state.process)
+        // Clean up pipe handlers and drain remaining data before caching output
+        cleanupProcessPipes(state.process, terminalId: terminalId.value)
+
+        // Re-fetch state after draining (output may have been appended)
+        state = terminals[terminalId.value] ?? state
 
         // Wake up any waiters
         let exitCode = Int(state.process.terminationStatus)
@@ -317,6 +353,12 @@ actor AgentTerminalDelegate {
     func getOutput(terminalId: TerminalId) -> String? {
         // First check active terminals
         if let state = terminals[terminalId.value] {
+            // If process exited, drain any remaining output first
+            if !state.process.isRunning {
+                drainRemainingOutput(terminalId: terminalId.value, process: state.process)
+                // Re-fetch state after draining
+                return terminals[terminalId.value]?.outputBuffer ?? state.outputBuffer
+            }
             return state.outputBuffer
         }
         // Then check released terminals cache
@@ -326,6 +368,49 @@ actor AgentTerminalDelegate {
     /// Check if terminal is still running
     func isRunning(terminalId: TerminalId) -> Bool {
         return terminals[terminalId.value]?.process.isRunning ?? false
+    }
+
+    /// Drain remaining output when process has exited (non-destructive)
+    private func drainRemainingOutput(terminalId: String, process: Process) {
+        // Drain stdout
+        if let outputPipe = process.standardOutput as? Pipe {
+            let handle = outputPipe.fileHandleForReading
+            // Only drain if handler is still set (not already cleaned up)
+            if handle.readabilityHandler != nil {
+                handle.readabilityHandler = nil
+                do {
+                    while true {
+                        guard let data = try handle.read(upToCount: 65536), !data.isEmpty else {
+                            break
+                        }
+                        if let output = String(data: data, encoding: .utf8) {
+                            appendOutput(terminalId: terminalId, output: output)
+                        }
+                    }
+                } catch {
+                    // Handle already closed
+                }
+            }
+        }
+        // Drain stderr
+        if let errorPipe = process.standardError as? Pipe {
+            let handle = errorPipe.fileHandleForReading
+            if handle.readabilityHandler != nil {
+                handle.readabilityHandler = nil
+                do {
+                    while true {
+                        guard let data = try handle.read(upToCount: 65536), !data.isEmpty else {
+                            break
+                        }
+                        if let output = String(data: data, encoding: .utf8) {
+                            appendOutput(terminalId: terminalId, output: output)
+                        }
+                    }
+                } catch {
+                    // Handle already closed
+                }
+            }
+        }
     }
 
     // MARK: - Private Helpers

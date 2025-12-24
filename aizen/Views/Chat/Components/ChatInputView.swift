@@ -22,6 +22,13 @@ struct CustomTextEditor: NSViewRepresentable {
     // Image paste callback - (imageData, mimeType)
     var onImagePaste: ((Data, String) -> Void)?
 
+    // Large text paste callback - text exceeding threshold becomes attachment
+    var onLargeTextPaste: ((String) -> Void)?
+
+    // Threshold for converting pasted text to attachment (characters or lines)
+    static let largeTextCharacterThreshold = 500
+    static let largeTextLineThreshold = 10
+
     // Cursor position control - when set, moves cursor to this position after text update
     @Binding var pendingCursorPosition: Int?
 
@@ -86,6 +93,7 @@ struct CustomTextEditor: NSViewRepresentable {
         context.coordinator.onCursorChange = onCursorChange
         context.coordinator.onAutocompleteNavigate = onAutocompleteNavigate
         context.coordinator.onImagePaste = onImagePaste
+        context.coordinator.onLargeTextPaste = onLargeTextPaste
         context.coordinator.updateMeasuredHeight()
     }
 
@@ -96,7 +104,8 @@ struct CustomTextEditor: NSViewRepresentable {
             onSubmit: onSubmit,
             onCursorChange: onCursorChange,
             onAutocompleteNavigate: onAutocompleteNavigate,
-            onImagePaste: onImagePaste
+            onImagePaste: onImagePaste,
+            onLargeTextPaste: onLargeTextPaste
         )
     }
 
@@ -107,6 +116,7 @@ struct CustomTextEditor: NSViewRepresentable {
         var onCursorChange: ((String, Int, NSRect) -> Void)?
         var onAutocompleteNavigate: ((AutocompleteNavigationAction) -> Bool)?
         var onImagePaste: ((Data, String) -> Void)?
+        var onLargeTextPaste: ((String) -> Void)?
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
         private var eventMonitor: Any?
@@ -117,7 +127,8 @@ struct CustomTextEditor: NSViewRepresentable {
             onSubmit: @escaping () -> Void,
             onCursorChange: ((String, Int, NSRect) -> Void)?,
             onAutocompleteNavigate: ((AutocompleteNavigationAction) -> Bool)?,
-            onImagePaste: ((Data, String) -> Void)?
+            onImagePaste: ((Data, String) -> Void)?,
+            onLargeTextPaste: ((String) -> Void)?
         ) {
             _text = text
             _measuredHeight = measuredHeight
@@ -125,6 +136,7 @@ struct CustomTextEditor: NSViewRepresentable {
             self.onCursorChange = onCursorChange
             self.onAutocompleteNavigate = onAutocompleteNavigate
             self.onImagePaste = onImagePaste
+            self.onLargeTextPaste = onLargeTextPaste
             super.init()
             setupEventMonitor()
         }
@@ -144,14 +156,38 @@ struct CustomTextEditor: NSViewRepresentable {
                     // Check if our text view is first responder
                     if let textView = self.textView,
                        textView.window?.firstResponder === textView {
-                        // Try to handle image paste
+                        // Try to handle image paste first
                         if self.handleImagePaste() {
+                            return nil // Consume the event
+                        }
+                        // Try to handle large text paste
+                        if self.handleLargeTextPaste() {
                             return nil // Consume the event
                         }
                     }
                 }
                 return event
             }
+        }
+
+        private func handleLargeTextPaste() -> Bool {
+            guard let onLargeTextPaste = onLargeTextPaste else { return false }
+
+            let pasteboard = NSPasteboard.general
+
+            guard let pastedText = pasteboard.string(forType: .string) else { return false }
+
+            let lineCount = pastedText.components(separatedBy: .newlines).count
+            let charCount = pastedText.count
+
+            // Check if text exceeds thresholds
+            if charCount >= CustomTextEditor.largeTextCharacterThreshold ||
+               lineCount >= CustomTextEditor.largeTextLineThreshold {
+                onLargeTextPaste(pastedText)
+                return true
+            }
+
+            return false
         }
 
         private func handleImagePaste() -> Bool {
@@ -432,6 +468,10 @@ struct ChatAttachmentChip: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.purple)
             }
+        case .text:
+            Image(systemName: "doc.text")
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
         case .reviewComments:
             Image(systemName: "text.bubble")
                 .font(.system(size: 12))
@@ -450,6 +490,8 @@ struct ChatAttachmentChip: View {
             InputAttachmentDetailView(url: url)
         case .image(let data, _):
             ImageAttachmentDetailView(data: data)
+        case .text(let content):
+            TextAttachmentDetailView(content: content)
         case .reviewComments(let content):
             ReviewCommentsDetailView(content: content)
         case .buildError(let content):
@@ -509,6 +551,54 @@ struct ImageAttachmentDetailView: View {
                     .padding()
                 }
             }
+        }
+        .frame(width: 700, height: 500)
+    }
+}
+
+// MARK: - Text Attachment Detail View
+
+struct TextAttachmentDetailView: View {
+    let content: String
+    @Environment(\.dismiss) var dismiss
+
+    private var lineCount: Int {
+        content.components(separatedBy: .newlines).count
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pasted Text")
+                        .font(.headline)
+                    Text("\(lineCount) lines, \(content.count) characters")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            .background(.ultraThinMaterial)
+
+            Divider()
+
+            ScrollView {
+                Text(content)
+                    .font(.system(size: 12, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .background(Color(nsColor: .textBackgroundColor))
         }
         .frame(width: 700, height: 500)
     }

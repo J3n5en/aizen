@@ -14,6 +14,8 @@ struct ToolCallGroupView: View {
     var onOpenDetails: ((ToolCall) -> Void)? = nil
     var onOpenInEditor: ((String) -> Void)? = nil
     var childToolCallsProvider: (String) -> [ToolCall] = { _ in [] }
+    /// Whether this group is from a completed turn (not current streaming turn)
+    var isCompletedTurn: Bool = false
 
     @State private var isExpanded: Bool = false
 
@@ -38,7 +40,7 @@ struct ToolCallGroupView: View {
                 isExpanded.toggle()
             }
         }) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 // Status indicator
                 Circle()
                     .fill(statusColor)
@@ -52,7 +54,23 @@ struct ToolCallGroupView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.primary)
 
-                Spacer(minLength: 6)
+                // Duration badge (only show for completed turns)
+                if isCompletedTurn, let duration = group.formattedDuration {
+                    Text(duration)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color(.controlBackgroundColor).opacity(0.5))
+                        .cornerRadius(3)
+                }
+
+                // File change chips (only show for completed turns with changes)
+                if isCompletedTurn && group.hasFileChanges {
+                    fileChangeChips
+                }
+
+                Spacer(minLength: 4)
 
                 // Expand indicator
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
@@ -80,6 +98,23 @@ struct ToolCallGroupView: View {
             }
             if group.toolKinds.count > 4 {
                 Text("+\(group.toolKinds.count - 4)")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    // MARK: - File Change Chips
+
+    @ViewBuilder
+    private var fileChangeChips: some View {
+        let changes = group.fileChanges.prefix(3)
+        HStack(spacing: 4) {
+            ForEach(Array(changes)) { change in
+                FileChangeChip(change: change, onOpenInEditor: onOpenInEditor)
+            }
+            if group.fileChanges.count > 3 {
+                Text("+\(group.fileChanges.count - 3)")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
             }
@@ -116,5 +151,45 @@ struct ToolCallGroupView: View {
 
     private var backgroundColor: Color {
         Color(.controlBackgroundColor).opacity(0.2)
+    }
+}
+
+// MARK: - File Change Chip
+
+struct FileChangeChip: View {
+    let change: FileChangeSummary
+    var onOpenInEditor: ((String) -> Void)?
+
+    var body: some View {
+        Button(action: {
+            onOpenInEditor?(change.path)
+        }) {
+            HStack(spacing: 3) {
+                Text(change.filename)
+                    .font(.system(size: 9))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                if change.linesAdded > 0 || change.linesRemoved > 0 {
+                    HStack(spacing: 1) {
+                        if change.linesAdded > 0 {
+                            Text("+\(change.linesAdded)")
+                                .foregroundColor(.green)
+                        }
+                        if change.linesRemoved > 0 {
+                            Text("-\(change.linesRemoved)")
+                                .foregroundColor(.red)
+                        }
+                    }
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                }
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color(.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(3)
+        }
+        .buttonStyle(.plain)
+        .help(change.path)
     }
 }

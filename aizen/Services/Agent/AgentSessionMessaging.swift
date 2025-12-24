@@ -76,7 +76,7 @@ extension AgentSession {
                     }
                 }
 
-            case .reviewComments, .buildError:
+            case .reviewComments, .buildError, .text:
                 // These are handled above via contentForAgent
                 break
             }

@@ -102,6 +102,11 @@ struct ChatInputBar: View {
                             handleAutocompleteNavigation(action)
                         },
                         onImagePaste: onImagePaste,
+                        onLargeTextPaste: { pastedText in
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                attachments.append(.text(pastedText))
+                            }
+                        },
                         pendingCursorPosition: $pendingCursorPosition
                     )
                     .font(.system(size: 14))
