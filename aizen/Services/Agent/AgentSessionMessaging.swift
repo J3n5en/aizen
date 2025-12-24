@@ -38,10 +38,13 @@ extension AgentSession {
         markLastMessageComplete()
         resetFinalizeState()
 
-        // Build content blocks array
+        // Build content blocks array for sending to agent
         var contentBlocks: [ContentBlock] = []
+        
+        // Build UI content blocks (for display - excludes prepended text from main block)
+        var uiContentBlocks: [ContentBlock] = []
 
-        // Collect text-based attachments to prepend to message
+        // Collect text-based attachments to prepend to message (for agent)
         var prependedContent = ""
         for attachment in attachments {
             if let attachmentContent = attachment.contentForAgent {
@@ -49,9 +52,12 @@ extension AgentSession {
             }
         }
 
-        // Add text content (with attachments prepended if any)
+        // Add text content (with attachments prepended if any) - this goes to agent
         let fullContent = prependedContent.isEmpty ? content : prependedContent + content
         contentBlocks.append(.text(TextContent(text: fullContent, annotations: nil, _meta: nil)))
+        
+        // For UI, only add the typed message as main text block
+        uiContentBlocks.append(.text(TextContent(text: content, annotations: nil, _meta: nil)))
 
         // Add attachments as appropriate content blocks
         for attachment in attachments {
@@ -63,22 +69,31 @@ extension AgentSession {
                     mimeType: mimeType
                 )
                 contentBlocks.append(.image(imageContent))
+                uiContentBlocks.append(.image(imageContent))
 
             case .file(let url):
                 // Check if it's an image file
                 if attachment.isImage {
                     if let imageBlock = try? await createImageBlock(from: url) {
                         contentBlocks.append(imageBlock)
+                        uiContentBlocks.append(imageBlock)
                     }
                 } else {
                     if let resourceBlock = try? await createResourceBlock(from: url) {
                         contentBlocks.append(resourceBlock)
+                        uiContentBlocks.append(resourceBlock)
                     }
                 }
 
-            case .reviewComments, .buildError, .text:
-                // These are handled above via contentForAgent
-                break
+            case .text(let pastedText):
+                // Pasted text - add as separate text block for UI display
+                uiContentBlocks.append(.text(TextContent(text: pastedText, annotations: nil, _meta: nil)))
+                
+            case .reviewComments, .buildError:
+                // These are prepended to content for agent, but also show as attachment in UI
+                if let attachmentContent = attachment.contentForAgent {
+                    uiContentBlocks.append(.text(TextContent(text: attachmentContent, annotations: nil, _meta: nil)))
+                }
             }
         }
 

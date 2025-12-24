@@ -32,6 +32,7 @@ struct ChatInputBar: View {
     let onCancel: () -> Void
     let onAutocompleteSelect: () -> Void
     let onImagePaste: (Data, String) -> Void
+    let onAgentSelect: (String) -> Void
 
     @State private var isHoveringInput = false
     @State private var dashPhase: CGFloat = 0
@@ -119,7 +120,7 @@ struct ChatInputBar: View {
 
             if !showingVoiceRecording {
                 if let agentSession = session, !agentSession.availableModels.isEmpty {
-                    ModelSelectorMenu(session: agentSession, selectedAgent: selectedAgent)
+                    ModelSelectorMenu(session: agentSession, selectedAgent: selectedAgent, onAgentSelect: onAgentSelect)
                         .transition(.opacity)
                 }
 

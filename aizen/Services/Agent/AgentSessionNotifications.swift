@@ -93,31 +93,35 @@ extension AgentSession {
                 let (text, blockContent) = textAndContent(from: block)
                 if text.isEmpty && blockContent.isEmpty { break }
                 recordAgentChunk()
-                let lastMessage = messages.last
 
-                if let lastMessage = lastMessage,
-                   lastMessage.role == .agent,
-                   !lastMessage.isComplete {
-                    // Append to existing message
-                    var newContent = lastMessage.content
+                // Find the last agent message (not just last message)
+                // This prevents system messages (like mode changes) from splitting the stream
+                let lastAgentIndex = messages.lastIndex { $0.role == .agent }
+                let lastAgentMessage = lastAgentIndex.map { messages[$0] }
+
+                if let lastAgentMessage = lastAgentMessage,
+                   !lastAgentMessage.isComplete,
+                   let index = lastAgentIndex {
+                    // Append to existing incomplete agent message
+                    var newContent = lastAgentMessage.content
                     newContent.append(text)
-                    var newBlocks = lastMessage.contentBlocks
+                    var newBlocks = lastAgentMessage.contentBlocks
                     if !blockContent.isEmpty {
                         newBlocks.append(contentsOf: blockContent)
                     }
                     // Force SwiftUI to recognize the change by explicitly notifying
                     objectWillChange.send()
-                    messages[messages.count - 1] = MessageItem(
-                        id: lastMessage.id,
+                    messages[index] = MessageItem(
+                        id: lastAgentMessage.id,
                         role: .agent,
                         content: newContent,
-                        timestamp: lastMessage.timestamp,
-                        toolCalls: lastMessage.toolCalls,
+                        timestamp: lastAgentMessage.timestamp,
+                        toolCalls: lastAgentMessage.toolCalls,
                         contentBlocks: newBlocks,
                         isComplete: false,
-                        startTime: lastMessage.startTime,
-                        executionTime: lastMessage.executionTime,
-                        requestId: lastMessage.requestId
+                        startTime: lastAgentMessage.startTime,
+                        executionTime: lastAgentMessage.executionTime,
+                        requestId: lastAgentMessage.requestId
                     )
                     messages = messages
                 } else {

@@ -97,16 +97,6 @@ struct ChatSessionView: View {
                 Spacer(minLength: 0)
 
                 VStack(spacing: 8) {
-                    // Agent Plan (inline, above permission requests)
-                    if let plan = viewModel.currentAgentPlan {
-                        HStack {
-                            AgentPlanInlineView(plan: plan)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 20)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
-
                     // Permission Requests (excluding plan requests)
                     if let agentSession = viewModel.currentAgentSession,
                        viewModel.showingPermissionAlert,
@@ -120,16 +110,13 @@ struct ChatSessionView: View {
                         .padding(.horizontal, 20)
                     }
 
-                    if !viewModel.attachments.isEmpty {
-                        attachmentChipsView
-                            .padding(.horizontal, 20)
-                    }
-
                     ChatControlsBar(
                         selectedAgent: viewModel.selectedAgent,
                         currentAgentSession: viewModel.currentAgentSession,
                         hasModes: viewModel.hasModes,
-                        onAgentSelect: viewModel.requestAgentSwitch
+                        attachments: viewModel.attachments,
+                        onRemoveAttachment: viewModel.removeAttachment,
+                        plan: viewModel.currentAgentPlan
                     )
                     .padding(.horizontal, 20)
 
@@ -154,7 +141,8 @@ struct ChatSessionView: View {
                         onAutocompleteSelect: viewModel.handleAutocompleteSelection,
                         onImagePaste: { data, mimeType in
                             viewModel.attachments.append(.image(data, mimeType: mimeType))
-                        }
+                        },
+                        onAgentSelect: viewModel.requestAgentSwitch
                     )
                     .padding(.horizontal, 20)
                 }
@@ -278,19 +266,6 @@ struct ChatSessionView: View {
     private func scrollToBottom() {
         viewModel.isNearBottom = true
         viewModel.scrollToBottom()
-    }
-
-    // MARK: - Subviews
-
-    private var attachmentChipsView: some View {
-        HStack(spacing: 8) {
-            ForEach(viewModel.attachments) { attachment in
-                ChatAttachmentChip(attachment: attachment) {
-                    viewModel.removeAttachment(attachment)
-                }
-            }
-            Spacer()
-        }
     }
 
     // MARK: - Autocomplete Window

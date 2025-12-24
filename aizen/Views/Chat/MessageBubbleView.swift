@@ -208,9 +208,10 @@ struct UserBubble<Background: View>: View {
     private var hasAttachments: Bool {
         contentBlocks.contains { block in
             switch block {
-            case .text, .image, .resource, .resourceLink:
+            case .image, .resource, .resourceLink:
                 return true
-            case .audio:
+            case .text, .audio:
+                // Text content is shown in the bubble itself, not as attachment
                 return false
             }
         }
@@ -272,8 +273,6 @@ struct UserBubble<Background: View>: View {
     @ViewBuilder
     private func attachmentView(for block: ContentBlock) -> some View {
         switch block {
-        case .text(let textContent):
-            TextAttachmentChip(text: textContent.text)
         case .image(let imageContent):
             ImageAttachmentCardView(data: imageContent.data, mimeType: imageContent.mimeType)
         case .resource(let resourceContent):
@@ -290,7 +289,8 @@ struct UserBubble<Background: View>: View {
                 uri: linkContent.uri,
                 mimeType: linkContent.mimeType
             )
-        case .audio:
+        case .text, .audio:
+            // Text is shown in bubble, audio not displayed as attachment
             EmptyView()
         }
     }

@@ -11,25 +11,39 @@ struct ChatControlsBar: View {
     let selectedAgent: String
     let currentAgentSession: AgentSession?
     let hasModes: Bool
-    let onAgentSelect: (String) -> Void
+    let attachments: [ChatAttachment]
+    let onRemoveAttachment: (ChatAttachment) -> Void
+    let plan: Plan?
 
     @State private var showingAuthClearedMessage = false
 
     var body: some View {
         HStack(spacing: 8) {
-            AgentSelectorMenu(selectedAgent: selectedAgent, onAgentSelect: onAgentSelect)
+            // Left side: Attachments, Plan
+            if !attachments.isEmpty {
+                ForEach(attachments) { attachment in
+                    ChatAttachmentChip(attachment: attachment) {
+                        onRemoveAttachment(attachment)
+                    }
+                }
+            }
 
-            if hasModes, let agentSession = currentAgentSession {
-                ModeSelectorView(session: agentSession)
+            if let plan = plan {
+                AgentPlanInlineView(plan: plan)
             }
 
             Spacer()
 
+            // Right side: Auth message, Mode picker, More options
             if showingAuthClearedMessage {
                 Text("Auth cleared. Start new session to re-authenticate.")
                     .font(.caption)
                     .foregroundColor(.green)
                     .transition(.opacity)
+            }
+
+            if hasModes, let agentSession = currentAgentSession {
+                ModeSelectorView(session: agentSession)
             }
 
             Menu {
